@@ -48,6 +48,14 @@ def init_db():
             ultimo_uso  TEXT,
             ip          TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS dispositivos (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id   TEXT UNIQUE NOT NULL,
+            nombre      TEXT,
+            activo      INTEGER DEFAULT 1,
+            agregado_en TEXT
+        );
     """)
 
     # Config por defecto
@@ -164,5 +172,107 @@ def actualizar_usuario(user_id, nombre=None, email=None, rol=None, activo=None, 
 def eliminar_usuario(user_id):
     conn = get_db()
     conn.execute("DELETE FROM usuarios WHERE id=? AND rol != 'admin'", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+# ── CRUD dispositivos ─────────────────────────────────────────────────────────
+
+def listar_dispositivos(solo_activos=True):
+    conn = get_db()
+    q = "SELECT * FROM dispositivos"
+    if solo_activos:
+        q += " WHERE activo=1"
+    q += " ORDER BY device_id"
+    rows = conn.execute(q).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_ids_dispositivos():
+    """Devuelve solo la lista de IDs activos (para consultar Sigfox)."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT device_id FROM dispositivos WHERE activo=1 ORDER BY device_id"
+    ).fetchall()
+    conn.close()
+    return [r["device_id"] for r in rows]
+
+
+def contar_dispositivos():
+    conn = get_db()
+    n = conn.execute("SELECT COUNT(*) FROM dispositivos WHERE activo=1").fetchone()[0]
+    conn.close()
+    return n
+
+
+def importar_dispositivos_csv(texto_csv, reemplazar=False):
+    """
+    Importa IDs desde texto CSV. Detecta automáticamente la columna IDs o device_id.
+    reemplazar=True borra todos antes de importar.
+    Devuelve (insertados, duplicados, errores).
+    """
+    import csv, io
+    conn = get_db()
+    if reemplazar:
+        conn.execute("DELETE FROM dispositivos")
+        conn.commit()
+
+    insertados = duplicados = errores = 0
+    reader = csv.DictReader(io.StringIO(texto_csv))
+    col = None
+    for posible in ["IDs", "ID", "device_id", "DeviceId", "id", "Device ID"]:
+        if posible in (reader.fieldnames or []):
+            col = posible
+            break
+    if col is None and reader.fieldnames:
+        col = reader.fieldnames[0]  # usa primera columna
+
+    now = datetime.now().isoformat()
+    for row in reader:
+        try:
+            dev_id = str(row[col]).strip()
+            if not dev_id:
+                continue
+            conn.execute(
+                "INSERT OR IGNORE INTO dispositivos(device_id, activo, agregado_en) VALUES(?,1,?)",
+                (dev_id, now)
+            )
+            if conn.execute("SELECT changes()").fetchone()[0]:
+                insertados += 1
+            else:
+                duplicados += 1
+        except Exception:
+            errores += 1
+    conn.commit()
+    conn.close()
+    return insertados, duplicados, errores
+
+
+def agregar_dispositivo(device_id, nombre=""):
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO dispositivos(device_id, nombre, activo, agregado_en) VALUES(?,?,1,?)",
+            (device_id.strip(), nombre.strip(), datetime.now().isoformat())
+        )
+        conn.commit()
+        return True, "Dispositivo agregado"
+    except sqlite3.IntegrityError:
+        return False, "El dispositivo ya existe"
+    finally:
+        conn.close()
+
+
+def eliminar_dispositivo(device_id):
+    conn = get_db()
+    conn.execute("DELETE FROM dispositivos WHERE device_id=?", (device_id,))
+    conn.commit()
+    conn.close()
+
+
+def toggle_dispositivo(device_id, activo):
+    conn = get_db()
+    conn.execute("UPDATE dispositivos SET activo=? WHERE device_id=?", (activo, device_id))
     conn.commit()
     conn.close()

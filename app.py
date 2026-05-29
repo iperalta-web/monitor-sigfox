@@ -29,7 +29,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from database import (init_db, verificar_usuario, get_usuario, get_config,
                       set_config, actualizar_ultimo_login, listar_usuarios,
                       crear_usuario, actualizar_usuario, eliminar_usuario,
-                      contar_usuarios_activos)
+                      contar_usuarios_activos, get_ids_dispositivos,
+                      listar_dispositivos, agregar_dispositivo,
+                      eliminar_dispositivo, toggle_dispositivo,
+                      importar_dispositivos_csv, contar_dispositivos)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
@@ -142,8 +145,7 @@ def obtener_datos(year, month, force=False):
             return cached
 
     cfg = cargar_config()
-    devices_file = os.path.join(SCRIPT_DIR, cfg["archivos"]["lista_devices"])
-    ids = pd.read_csv(devices_file)[cfg["archivos"]["columna_ids"]].tolist()
+    ids = get_ids_dispositivos()
 
     dias_mes = calendar.monthrange(int(year), int(month))[1]
     hoy = date.today()
@@ -458,9 +460,69 @@ def admin_panel():
         max_usuarios=int(get_config("max_usuarios", 10)),
         nombre_app=get_config("nombre_app", "Monitor Sigfox"),
         logo_empresa=get_config("logo_empresa", "IotNet"),
+        dispositivos=listar_dispositivos(solo_activos=False),
         msg=request.args.get("msg"),
         msg_tipo=request.args.get("tipo", "ok"),
     )
+
+
+# ── Dispositivos API ──────────────────────────────────────────────────────────
+
+@app.route("/admin/dispositivos/upload-csv", methods=["POST"])
+@admin_required
+def admin_upload_csv():
+    try:
+        f = request.files.get("archivo")
+        if not f:
+            return jsonify({"ok": False, "error": "No se recibió archivo"}), 400
+        texto = f.read().decode("utf-8", errors="ignore")
+        reemplazar = request.form.get("reemplazar", "false") == "true"
+        ins, dup, err = importar_dispositivos_csv(texto, reemplazar=reemplazar)
+        _cache.clear()
+        return jsonify({"ok": True, "insertados": ins, "duplicados": dup, "errores": err})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/dispositivos/agregar", methods=["POST"])
+@admin_required
+def admin_agregar_dispositivo():
+    try:
+        body = request.get_json()
+        device_id = (body.get("device_id") or "").strip()
+        nombre    = (body.get("nombre")    or "").strip()
+        if not device_id:
+            return jsonify({"ok": False, "error": "ID requerido"}), 400
+        ok, msg = agregar_dispositivo(device_id, nombre)
+        if ok:
+            _cache.clear()
+        return jsonify({"ok": ok, "msg": msg})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/dispositivos/eliminar/<device_id>", methods=["POST"])
+@admin_required
+def admin_eliminar_dispositivo(device_id):
+    try:
+        eliminar_dispositivo(device_id)
+        _cache.clear()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/dispositivos/toggle/<device_id>", methods=["POST"])
+@admin_required
+def admin_toggle_dispositivo(device_id):
+    try:
+        body   = request.get_json()
+        activo = int(body.get("activo", 1))
+        toggle_dispositivo(device_id, activo)
+        _cache.clear()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/admin/crear-usuario", methods=["POST"])

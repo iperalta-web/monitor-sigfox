@@ -364,6 +364,99 @@
     </div>
   </div>
 
+  <!-- Dispositivos Sigfox -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">📡 Dispositivos Sigfox</div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:13px;color:var(--muted)">
+          <b id="cnt-devs">{{ dispositivos|length }}</b> dispositivos activos
+        </span>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('upload-area').style.display='block'">
+          ⬆️ Cargar CSV
+        </button>
+      </div>
+    </div>
+    <div class="card-body">
+
+      <!-- Upload CSV -->
+      <div id="upload-area" style="display:none;background:#f8fafc;border:2px dashed var(--border);
+           border-radius:12px;padding:20px;margin-bottom:20px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:12px">⬆️ Cargar lista de dispositivos desde CSV</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:14px">
+          El CSV debe tener una columna llamada <code>IDs</code>, <code>device_id</code> o <code>ID</code>
+          con los IDs de dispositivos Sigfox.
+        </div>
+        <input type="file" id="csv-file" accept=".csv" style="margin-bottom:12px;font-size:13px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="csv-reemplazar" style="width:15px;height:15px">
+            Reemplazar lista existente (si no se marca, solo agrega los nuevos)
+          </label>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="subirCSV()">📤 Importar</button>
+          <button class="btn btn-outline"
+                  onclick="document.getElementById('upload-area').style.display='none'">
+            Cancelar
+          </button>
+        </div>
+        <div id="csv-result" style="margin-top:12px;font-size:13px;font-weight:600;display:none"></div>
+      </div>
+
+      <!-- Agregar uno a uno -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;align-items:flex-end">
+        <div class="field" style="flex:1;margin-bottom:0">
+          <label>Agregar dispositivo manualmente</label>
+          <input type="text" id="nuevo-device-id" placeholder="ID del dispositivo Sigfox"
+                 style="width:100%" onkeydown="if(event.key==='Enter')agregarDispositivo()">
+        </div>
+        <button class="btn btn-primary" onclick="agregarDispositivo()" style="height:38px">
+          ➕ Agregar
+        </button>
+      </div>
+
+      <!-- Tabla dispositivos -->
+      <div style="overflow-x:auto;max-height:400px;overflow-y:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>ID Dispositivo</th>
+              <th>Nombre / Descripción</th>
+              <th>Estado</th>
+              <th>Agregado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-dispositivos">
+            {% for d in dispositivos %}
+            <tr id="row-{{ d.device_id }}">
+              <td style="font-family:monospace;font-weight:700">{{ d.device_id }}</td>
+              <td style="color:var(--muted)">{{ d.nombre or '—' }}</td>
+              <td>
+                <span class="badge {{ 'badge-activo' if d.activo else 'badge-inactivo' }}">
+                  {{ '✅ Activo' if d.activo else '⛔ Inactivo' }}
+                </span>
+              </td>
+              <td style="font-size:12px;color:var(--muted)">
+                {{ d.agregado_en[:10] if d.agregado_en else '—' }}
+              </td>
+              <td>
+                <button class="btn btn-danger btn-sm"
+                        onclick="eliminarDispositivo('{{ d.device_id }}')">🗑</button>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">
+              Sin dispositivos. Carga un CSV o agrega manualmente.
+            </td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- Configuración de Email -->
   <div class="card">
     <div class="card-header">
@@ -610,6 +703,76 @@ async function guardarEmail() {
       cargarEmailConfig();
     } else { toast('❌ Error: ' + json.error, false); }
   } catch(e) { toast('❌ Error al guardar', false); }
+}
+
+// ── Dispositivos ──────────────────────────────────────────────────────────────
+async function subirCSV() {
+  const file = document.getElementById('csv-file').files[0];
+  if (!file) { toast('⚠️ Selecciona un archivo CSV', false); return; }
+  const reemplazar = document.getElementById('csv-reemplazar').checked;
+  const form = new FormData();
+  form.append('archivo', file);
+  form.append('reemplazar', reemplazar ? 'true' : 'false');
+  const res  = await fetch('/admin/dispositivos/upload-csv', { method: 'POST', body: form });
+  const json = await res.json();
+  const div  = document.getElementById('csv-result');
+  div.style.display = 'block';
+  if (json.ok) {
+    div.style.color = 'var(--ok)';
+    div.textContent = `✅ Importados: ${json.insertados}  |  Duplicados: ${json.duplicados}  |  Errores: ${json.errores}`;
+    toast(`✅ ${json.insertados} dispositivos importados`);
+    setTimeout(() => location.reload(), 1500);
+  } else {
+    div.style.color = 'var(--crit)';
+    div.textContent = '❌ Error: ' + json.error;
+  }
+}
+
+async function agregarDispositivo() {
+  const input = document.getElementById('nuevo-device-id');
+  const id    = input.value.trim();
+  if (!id) { toast('⚠️ Escribe el ID del dispositivo', false); return; }
+  const res  = await fetch('/admin/dispositivos/agregar', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ device_id: id, nombre: '' })
+  });
+  const json = await res.json();
+  if (json.ok) {
+    input.value = '';
+    toast('✅ Dispositivo agregado');
+    // Agregar fila sin recargar
+    const tbody = document.getElementById('tbody-dispositivos');
+    const hoy   = new Date().toISOString().slice(0,10);
+    // quita fila vacía si existe
+    const empty = tbody.querySelector('td[colspan]');
+    if (empty) empty.closest('tr').remove();
+    tbody.insertAdjacentHTML('afterbegin', `
+      <tr id="row-${id}">
+        <td style="font-family:monospace;font-weight:700">${id}</td>
+        <td style="color:var(--muted)">—</td>
+        <td><span class="badge badge-activo">✅ Activo</span></td>
+        <td style="font-size:12px;color:var(--muted)">${hoy}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="eliminarDispositivo('${id}')">🗑</button></td>
+      </tr>`);
+    const cnt = document.getElementById('cnt-devs');
+    cnt.textContent = +cnt.textContent + 1;
+  } else {
+    toast('❌ ' + (json.msg || json.error), false);
+  }
+}
+
+async function eliminarDispositivo(id) {
+  if (!confirm(`¿Eliminar dispositivo ${id}?`)) return;
+  const res  = await fetch(`/admin/dispositivos/eliminar/${id}`, { method: 'POST' });
+  const json = await res.json();
+  if (json.ok) {
+    document.getElementById('row-' + id)?.remove();
+    const cnt = document.getElementById('cnt-devs');
+    cnt.textContent = Math.max(0, +cnt.textContent - 1);
+    toast('🗑 Dispositivo eliminado');
+  } else {
+    toast('❌ Error: ' + json.error, false);
+  }
 }
 
 async function probarEmail() {
