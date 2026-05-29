@@ -42,13 +42,14 @@ app.secret_key = os.environ.get("SECRET_KEY", "sigfox-monitor-secret-2024-iotnet
 # Inicializar DB siempre al arrancar (con o sin gunicorn)
 _db_url = os.environ.get("DATABASE_URL", "")
 if not _db_url:
-    print("  [ERROR] DATABASE_URL no configurada. Define la variable de entorno.")
+    print("  [ERROR] DATABASE_URL no configurada.")
 else:
     try:
         init_db()
         print("  [DB] Base de datos inicializada correctamente.")
     except Exception as _e:
-        print(f"  [ERROR] No se pudo inicializar la BD: {_e}")
+        print(f"  [ERROR] init_db falló: {_e}")
+        import traceback; traceback.print_exc()
 
 # ── Cache en memoria + disco ──────────────────────────────────────────────────
 _cache   = {}
@@ -305,6 +306,35 @@ def obtener_datos(year, month, force=False):
 # ══════════════════════════════════════════════════════════════════════════════
 # RUTAS — Auth
 # ══════════════════════════════════════════════════════════════════════════════
+@app.route("/health")
+def health():
+    """Diagnóstico público — muestra estado de DB y vars de entorno."""
+    import traceback
+    info = {
+        "DATABASE_URL_set": bool(os.environ.get("DATABASE_URL")),
+        "SIGFOX_LOGIN_set": bool(os.environ.get("SIGFOX_LOGIN")),
+        "db_ok": False,
+        "tables": [],
+        "error": None,
+    }
+    try:
+        from database import get_db, _get_url
+        info["db_url_prefix"] = _get_url()[:40] + "..." if _get_url() else "VACÍA"
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'public'
+        """)
+        info["tables"] = [r["table_name"] for r in cur.fetchall()]
+        info["db_ok"] = True
+        cur.close(); conn.close()
+    except Exception as e:
+        info["error"] = str(e)
+        info["traceback"] = traceback.format_exc()
+    return jsonify(info)
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
     if "user_id" in session:
@@ -322,10 +352,15 @@ def login_page():
             actualizar_ultimo_login(user["id"])
             return redirect(url_for("index"))
         error = "Usuario o contraseña incorrectos"
+    try:
+        nombre_app  = get_config("nombre_app",  "Monitor Sigfox")
+        logo_empresa = get_config("logo_empresa", "IotNet")
+    except Exception:
+        nombre_app  = "Monitor Sigfox"
+        logo_empresa = "IotNet"
     return render_template("login.html",
         error=error, username=username,
-        nombre_app=get_config("nombre_app", "Monitor Sigfox"),
-        logo_empresa=get_config("logo_empresa", "IotNet"),
+        nombre_app=nombre_app, logo_empresa=logo_empresa,
         año=date.today().year)
 
 
