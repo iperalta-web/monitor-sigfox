@@ -39,6 +39,13 @@ CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "sigfox-monitor-secret-2024-iotnet")
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    print(f"  [ERROR] Excepción no controlada: {e}")
+    traceback.print_exc()
+    return jsonify({"ok": False, "error": str(e), "type": type(e).__name__}), 500
+
 # Inicializar DB siempre al arrancar (con o sin gunicorn)
 _db_url = os.environ.get("DATABASE_URL", "")
 if not _db_url:
@@ -236,14 +243,23 @@ def obtener_datos(year, month, force=False):
 
     registros = []
     for device_id in ids:
-        consumptions = consultar_consumo_api(
-            cfg["sigfox"]["login"], cfg["sigfox"]["password"], device_id, year, month)
-        if consumptions is None:
+        try:
+            consumptions = consultar_consumo_api(
+                cfg["sigfox"]["login"], cfg["sigfox"]["password"], device_id, year, month)
+            if consumptions is None:
+                continue
+            diarios = []
+            for d in range(dias_mes):
+                try:
+                    v = consumptions[d]["frameCount"] if d < len(consumptions) else None
+                except (IndexError, KeyError, TypeError):
+                    v = None
+                diarios.append(v)
+            registros.append({"id": str(device_id), "diarios": diarios,
+                               "total": sum(v for v in diarios if v is not None)})
+        except Exception as e:
+            print(f"  [ERR] Dispositivo {device_id}: {e}")
             continue
-        diarios = [consumptions[d]["frameCount"] if d < len(consumptions) else None
-                   for d in range(dias_mes)]
-        registros.append({"id": str(device_id), "diarios": diarios,
-                           "total": sum(v for v in diarios if v is not None)})
 
     limite_global = cfg["limites"]["global_mensual"]
     limite_diario = cfg["limites"]["diario_default"]
