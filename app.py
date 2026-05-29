@@ -29,6 +29,9 @@ CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "sigfox-monitor-secret-2024-iotnet")
 
+# Inicializar DB siempre al arrancar (con o sin gunicorn)
+init_db()
+
 # ── Cache en memoria (5 min) ──────────────────────────────────────────────────
 _cache = {}
 CACHE_TTL = 300
