@@ -1,5 +1,6 @@
 .env
-data/
+data/*.db
+data/cache_*.json
 resultados/
 __pycache__/
 *.pyc

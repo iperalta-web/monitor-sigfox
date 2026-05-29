@@ -128,11 +128,76 @@ def usuario_actual():
     return None
 
 # ── Config ────────────────────────────────────────────────────────────────────
+CONFIG_DEFAULT = {
+    "sigfox": {
+        "login":    os.environ.get("SIGFOX_LOGIN",    ""),
+        "password": os.environ.get("SIGFOX_PASSWORD", ""),
+    },
+    "limites": {
+        "diario_default":  140,
+        "global_mensual":  5000000,
+        "por_dispositivo": {},
+    },
+    "alertas": {
+        "umbral_advertencia_pct":       50,
+        "umbral_critico_pct":           95,
+        "umbral_global_advertencia_pct":75,
+        "umbral_global_critico_pct":    90,
+        "email": {
+            "habilitado":              False,
+            "smtp_host":               "smtp.gmail.com",
+            "smtp_port":               587,
+            "usar_tls":                True,
+            "usuario":                 "",
+            "password":                "",
+            "remitente":               "",
+            "destinatarios":           [],
+            "destinatarios_criticos":  [],
+        },
+    },
+    "email_config": {
+        "reporte_dia":  "fri",
+        "reporte_hora": "08:00",
+    },
+}
+
 def cargar_config():
+    if not os.path.exists(CONFIG_PATH):
+        # En Railway (o primera ejecución) crea config desde vars de entorno
+        cfg = json.loads(json.dumps(CONFIG_DEFAULT))  # deep-copy
+        cfg["sigfox"]["login"]    = os.environ.get("SIGFOX_LOGIN",    "")
+        cfg["sigfox"]["password"] = os.environ.get("SIGFOX_PASSWORD", "")
+        guardar_config_json(cfg)
+        return cfg
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+        cfg = json.load(f)
+    # Rellena claves que podrían faltar en versiones antiguas del archivo
+    if "sigfox" not in cfg:
+        cfg["sigfox"] = {"login": os.environ.get("SIGFOX_LOGIN", ""),
+                         "password": os.environ.get("SIGFOX_PASSWORD", "")}
+    else:
+        if not cfg["sigfox"].get("login"):
+            cfg["sigfox"]["login"]    = os.environ.get("SIGFOX_LOGIN",    "")
+        if not cfg["sigfox"].get("password"):
+            cfg["sigfox"]["password"] = os.environ.get("SIGFOX_PASSWORD", "")
+    cfg.setdefault("email_config", {"reporte_dia": "fri", "reporte_hora": "08:00"})
+    if "alertas" not in cfg:
+        cfg["alertas"] = CONFIG_DEFAULT["alertas"]
+    cfg["alertas"].setdefault("email", CONFIG_DEFAULT["alertas"]["email"])
+    cfg["alertas"]["email"].setdefault("destinatarios",          [])
+    cfg["alertas"]["email"].setdefault("destinatarios_criticos", [])
+    cfg["alertas"]["email"].setdefault("smtp_host",  "smtp.gmail.com")
+    cfg["alertas"]["email"].setdefault("smtp_port",  587)
+    cfg["alertas"]["email"].setdefault("usar_tls",   True)
+    cfg["alertas"]["email"].setdefault("usuario",    "")
+    cfg["alertas"]["email"].setdefault("password",   "")
+    cfg["alertas"]["email"].setdefault("remitente",  "")
+    cfg.setdefault("limites", CONFIG_DEFAULT["limites"])
+    cfg["limites"].setdefault("por_dispositivo", {})
+    return cfg
 
 def guardar_config_json(cfg):
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
 
