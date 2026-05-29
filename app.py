@@ -495,15 +495,17 @@ def api_config_get():
             "umbral_global_advertencia_pct":  cfg["alertas"].get("umbral_global_advertencia_pct", 75),
             "umbral_global_critico_pct":      cfg["alertas"].get("umbral_global_critico_pct", 90),
             "email": {
-                "habilitado":            ecfg["habilitado"],
-                "destinatarios":         ecfg["destinatarios"],
-                "destinatarios_criticos":ecfg["destinatarios_criticos"],
+                "habilitado":            ecfg.get("habilitado", False),
+                "destinatarios":         ecfg.get("destinatarios", []),
+                "destinatarios_criticos":ecfg.get("destinatarios_criticos", []),
+                "smtp_host":             ecfg.get("smtp_host",  "smtp.gmail.com"),
+                "smtp_port":             ecfg.get("smtp_port",  587),
+                "usuario":               ecfg.get("usuario",   ""),
+                "password":              ecfg.get("password",  ""),
+                "usar_tls":              ecfg.get("usar_tls",  True),
             },
         },
         "email_config": {
-            "smtp_host":    ecfg.get("smtp_host",    "smtp.gmail.com"),
-            "smtp_port":    ecfg.get("smtp_port",    587),
-            "usuario":      ecfg.get("usuario",      ""),
             "reporte_dia":  cfg.get("email_config", {}).get("reporte_dia",  "fri"),
             "reporte_hora": cfg.get("email_config", {}).get("reporte_hora", "08:00"),
         },
@@ -533,28 +535,22 @@ def api_config_post():
             cfg["alertas"]["email"]["destinatarios_criticos"] = body["destinatarios_criticos"]
         if "email_habilitado" in body:
             cfg["alertas"]["email"]["habilitado"] = bool(body["email_habilitado"])
-        # SMTP y config de email completa
-        smtp_fields = ["smtp_host", "smtp_port", "smtp_usuario", "reporte_dia", "reporte_hora"]
-        for f in smtp_fields:
-            if f in body:
-                key = f.replace("smtp_", "")
-                if f == "smtp_host":    cfg["alertas"]["email"]["smtp_host"]  = body[f]
-                elif f == "smtp_port":  cfg["alertas"]["email"]["smtp_port"]  = int(body[f])
-                elif f == "smtp_usuario":
-                    cfg["alertas"]["email"]["usuario"]   = body[f]
-                    cfg["alertas"]["email"]["remitente"] = body[f]
-                elif f == "reporte_dia":  cfg.setdefault("email_config", {})["reporte_dia"]  = body[f]
-                elif f == "reporte_hora": cfg.setdefault("email_config", {})["reporte_hora"] = body[f]
-        if body.get("smtp_password"):
-            cfg["alertas"]["email"]["password"] = body["smtp_password"]
-        # Guardar email_config para el frontend
-        if "email_config" not in cfg:
-            cfg["email_config"] = {}
-        cfg["email_config"]["smtp_host"]    = cfg["alertas"]["email"].get("smtp_host", "smtp.gmail.com")
-        cfg["email_config"]["smtp_port"]    = cfg["alertas"]["email"].get("smtp_port", 587)
-        cfg["email_config"]["usuario"]      = cfg["alertas"]["email"].get("usuario", "")
-        cfg["email_config"]["reporte_dia"]  = cfg.get("email_config", {}).get("reporte_dia", "fri")
-        cfg["email_config"]["reporte_hora"] = cfg.get("email_config", {}).get("reporte_hora", "08:00")
+        # Campos SMTP (nombres que envía el frontend)
+        if "smtp_host" in body:
+            cfg["alertas"]["email"]["smtp_host"] = body["smtp_host"]
+        if "smtp_port" in body:
+            cfg["alertas"]["email"]["smtp_port"] = int(body["smtp_port"] or 587)
+        if "smtp_user" in body:
+            cfg["alertas"]["email"]["usuario"]   = body["smtp_user"]
+            cfg["alertas"]["email"]["remitente"] = body["smtp_user"]
+        if "smtp_pass" in body and body["smtp_pass"]:
+            cfg["alertas"]["email"]["password"] = body["smtp_pass"]
+        if "smtp_tls" in body:
+            cfg["alertas"]["email"]["usar_tls"] = bool(body["smtp_tls"])
+        if "reporte_dia" in body:
+            cfg.setdefault("email_config", {})["reporte_dia"]  = body["reporte_dia"]
+        if "reporte_hora" in body:
+            cfg.setdefault("email_config", {})["reporte_hora"] = body["reporte_hora"]
         guardar_config_json(cfg)
         # Reprogramar scheduler si cambió día/hora
         if "reporte_dia" in body or "reporte_hora" in body:
@@ -565,6 +561,7 @@ def api_config_post():
         return jsonify({"ok": False, "error": str(e)}), 400
 
 
+@app.route("/api/test-email", methods=["POST"])
 @app.route("/api/email-prueba", methods=["POST"])
 @admin_required
 def api_email_prueba():

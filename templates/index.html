@@ -458,26 +458,83 @@
      style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;
             display:flex;align-items:center;justify-content:center"
      onclick="if(event.target===this)closeConfig()">
-  <div style="background:white;border-radius:16px;padding:28px;width:420px;
-              max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+  <div style="background:white;border-radius:16px;padding:28px;width:480px;
+              max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <h2 style="font-size:18px">⚙️ Configuración de alertas</h2>
       <button onclick="closeConfig()" style="background:none;border:none;
               font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
     </div>
-    <label>Destinatarios de email (uno por línea)</label>
-    <textarea id="modal-dest" rows="4"
-              style="width:100%;padding:8px;border:1px solid var(--border);
-                     border-radius:8px;font-size:13px;margin-top:6px;resize:vertical"></textarea>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;cursor:pointer">
-      <input type="checkbox" id="modal-email-hab" style="width:16px;height:16px">
-      Enviar alertas por email
-    </label>
-    <button class="save-btn" style="margin-top:18px" onclick="guardarEmail()">
-      💾 Guardar
-    </button>
+
+    <!-- Servidor SMTP -->
+    <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;
+                padding:16px;margin-bottom:18px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:.7px;color:var(--muted);margin-bottom:12px">📧 Servidor SMTP</div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end">
+        <div>
+          <label style="margin-top:0">Servidor SMTP</label>
+          <input type="text" id="modal-smtp-host" placeholder="smtp.gmail.com"
+                 style="width:100%;padding:8px 10px;border:1px solid var(--border);
+                        border-radius:8px;font-size:13px;outline:none">
+        </div>
+        <div style="width:90px">
+          <label style="margin-top:0">Puerto</label>
+          <input type="number" id="modal-smtp-port" placeholder="587"
+                 style="width:100%;padding:8px 10px;border:1px solid var(--border);
+                        border-radius:8px;font-size:13px;outline:none">
+        </div>
+      </div>
+      <label>Usuario / Correo remitente</label>
+      <input type="email" id="modal-smtp-user" placeholder="alertas@empresa.com"
+             style="width:100%;padding:8px 10px;border:1px solid var(--border);
+                    border-radius:8px;font-size:13px;outline:none">
+      <label>Contraseña / App Password</label>
+      <div style="position:relative">
+        <input type="password" id="modal-smtp-pass" placeholder="••••••••••••"
+               style="width:100%;padding:8px 36px 8px 10px;border:1px solid var(--border);
+                      border-radius:8px;font-size:13px;outline:none">
+        <button type="button" onclick="togglePassVis()"
+                style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+                       background:none;border:none;cursor:pointer;font-size:15px;
+                       color:var(--muted)" id="btn-eye" title="Mostrar/ocultar">👁</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer">
+        <input type="checkbox" id="modal-smtp-tls" style="width:15px;height:15px">
+        <span style="font-size:13px">Usar TLS (STARTTLS)</span>
+      </label>
+    </div>
+
+    <!-- Destinatarios -->
+    <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;
+                padding:16px;margin-bottom:18px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:.7px;color:var(--muted);margin-bottom:12px">👥 Destinatarios</div>
+      <label style="margin-top:0">Destinatarios (uno por línea)</label>
+      <textarea id="modal-dest" rows="3"
+                style="width:100%;padding:8px;border:1px solid var(--border);
+                       border-radius:8px;font-size:13px;margin-top:6px;resize:vertical"
+                placeholder="usuario@empresa.com&#10;otro@empresa.com"></textarea>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer">
+        <input type="checkbox" id="modal-email-hab" style="width:15px;height:15px">
+        <span style="font-size:13px">Enviar alertas por email</span>
+      </label>
+    </div>
+
+    <div style="display:flex;gap:10px">
+      <button class="save-btn" style="margin-top:0;flex:1" onclick="guardarEmail()">
+        💾 Guardar configuración
+      </button>
+      <button onclick="probarSMTP()" id="btn-probar"
+              style="margin-top:0;padding:9px 16px;border-radius:8px;border:1.5px solid var(--border);
+                     background:white;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+        🧪 Probar
+      </button>
+    </div>
     <div id="modal-saved" style="color:var(--ok);font-size:12px;text-align:center;
-                                  margin-top:8px;display:none">✅ Guardado</div>
+                                  margin-top:8px;display:none">✅ Guardado correctamente</div>
+    <div id="modal-test-result" style="font-size:12px;text-align:center;
+                                        margin-top:8px;display:none"></div>
   </div>
 </div>
 
@@ -817,8 +874,15 @@ async function cargarConfig() {
     document.getElementById('cfg-crit-global').value   = cfg.alertas.umbral_global_critico_pct;
     document.getElementById('cfg-adv-dev').value       = cfg.alertas.umbral_advertencia_pct;
     document.getElementById('cfg-crit-dev').value      = cfg.alertas.umbral_critico_pct;
-    document.getElementById('modal-dest').value        = cfg.alertas.email.destinatarios.join('\n');
-    document.getElementById('modal-email-hab').checked = cfg.alertas.email.habilitado;
+    // Email / SMTP
+    const em = cfg.alertas.email || {};
+    document.getElementById('modal-smtp-host').value  = em.smtp_host  || 'smtp.gmail.com';
+    document.getElementById('modal-smtp-port').value  = em.smtp_port  || 587;
+    document.getElementById('modal-smtp-user').value  = em.usuario    || '';
+    document.getElementById('modal-smtp-pass').value  = em.password   || '';
+    document.getElementById('modal-smtp-tls').checked = em.usar_tls !== false;
+    document.getElementById('modal-dest').value        = (em.destinatarios || []).join('\n');
+    document.getElementById('modal-email-hab').checked = !!em.habilitado;
   } catch(e) { console.error(e); }
 }
 
@@ -858,19 +922,60 @@ function closeConfig() {
 async function guardarEmail() {
   const dest = document.getElementById('modal-dest').value
     .split('\n').map(s => s.trim()).filter(Boolean);
-  const hab  = document.getElementById('modal-email-hab').checked;
+  const body = {
+    destinatarios:   dest,
+    email_habilitado: document.getElementById('modal-email-hab').checked,
+    smtp_host:  document.getElementById('modal-smtp-host').value.trim(),
+    smtp_port:  +document.getElementById('modal-smtp-port').value || 587,
+    smtp_user:  document.getElementById('modal-smtp-user').value.trim(),
+    smtp_pass:  document.getElementById('modal-smtp-pass').value,
+    smtp_tls:   document.getElementById('modal-smtp-tls').checked,
+  };
   try {
     const res = await fetch('/api/config', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ destinatarios: dest, email_habilitado: hab })
+      body: JSON.stringify(body)
     });
     const json = await res.json();
     if (json.ok) {
-      document.getElementById('modal-saved').style.display = 'block';
-      setTimeout(() => document.getElementById('modal-saved').style.display = 'none', 2500);
-      toast('✅ Email guardado');
+      const msg = document.getElementById('modal-saved');
+      msg.style.display = 'block';
+      setTimeout(() => msg.style.display = 'none', 2500);
+      toast('✅ Configuración SMTP guardada');
     }
-  } catch(e) { toast('❌ Error', true); }
+  } catch(e) { toast('❌ Error al guardar', true); }
+}
+
+function togglePassVis() {
+  const inp = document.getElementById('modal-smtp-pass');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+async function probarSMTP() {
+  const btn = document.getElementById('btn-probar');
+  const res_div = document.getElementById('modal-test-result');
+  btn.disabled = true;
+  btn.textContent = '⏳ Enviando...';
+  res_div.style.display = 'none';
+  try {
+    const res = await fetch('/api/test-email', { method: 'POST' });
+    const json = await res.json();
+    res_div.style.display = 'block';
+    if (json.ok) {
+      res_div.style.color = 'var(--ok)';
+      res_div.textContent = '✅ Email de prueba enviado correctamente';
+    } else {
+      res_div.style.color = 'var(--crit)';
+      res_div.textContent = '❌ ' + (json.error || 'Error desconocido');
+    }
+  } catch(e) {
+    res_div.style.display = 'block';
+    res_div.style.color = 'var(--crit)';
+    res_div.textContent = '❌ ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🧪 Probar';
+  }
 }
 
 // ── Descarga CSV ─────────────────────────────────────────────────────────────
