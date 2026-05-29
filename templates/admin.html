@@ -358,9 +358,124 @@
           </div>
         </div>
         <div class="form-actions">
-          <button type="submit" class="btn btn-primary">💾 Guardar configuración</button>
+          <button type="submit" class="btn btn-primary">💾 Guardar</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Configuración de Email -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">📧 Configuración de Email</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="email-status-badge" style="font-size:12px;font-weight:600"></span>
+        <button class="btn btn-primary btn-sm" onclick="probarEmail()">🧪 Enviar correo de prueba</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <!-- SMTP -->
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:.6px;color:var(--muted);margin-bottom:12px">
+        Servidor SMTP
+      </div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Servidor SMTP</label>
+          <input type="text" id="smtp-host" placeholder="smtp.gmail.com">
+        </div>
+        <div class="field">
+          <label>Puerto</label>
+          <input type="number" id="smtp-port" placeholder="587">
+        </div>
+        <div class="field">
+          <label>Usuario / Correo remitente</label>
+          <input type="email" id="smtp-usuario" placeholder="tu_correo@gmail.com">
+        </div>
+        <div class="field">
+          <label>Contraseña / App Password</label>
+          <input type="password" id="smtp-password" placeholder="••••••••••••••••">
+        </div>
+      </div>
+      <div style="margin-top:14px;display:flex;align-items:center;gap:10px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
+                      font-size:13px;font-weight:600;color:var(--text)">
+          <input type="checkbox" id="email-habilitado" style="width:16px;height:16px">
+          Alertas y reportes por email habilitados
+        </label>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
+
+      <!-- Destinatarios -->
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:.6px;color:var(--muted);margin-bottom:12px">
+        Destinatarios
+      </div>
+      <div class="form-grid">
+        <div class="field" style="grid-column:1/-1">
+          <label>
+            Destinatarios generales
+            <span style="font-weight:400;color:var(--muted)">
+              — reciben resumen diario, advertencias y reporte semanal
+            </span>
+          </label>
+          <div id="dest-lista" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
+          <button type="button" onclick="agregarDest('dest-lista')"
+                  style="margin-top:8px;background:none;border:1.5px dashed var(--border);
+                         border-radius:8px;padding:8px;cursor:pointer;color:var(--muted);
+                         font-size:13px;width:100%">
+            + Agregar destinatario
+          </button>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>
+            Destinatarios críticos
+            <span style="font-weight:400;color:var(--muted)">
+              — solo reciben alertas cuando se supera el umbral crítico 🔴
+            </span>
+          </label>
+          <div id="dest-criticos-lista" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
+          <button type="button" onclick="agregarDest('dest-criticos-lista')"
+                  style="margin-top:8px;background:none;border:1.5px dashed var(--border);
+                         border-radius:8px;padding:8px;cursor:pointer;color:var(--muted);
+                         font-size:13px;width:100%">
+            + Agregar destinatario crítico
+          </button>
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
+
+      <!-- Reporte semanal -->
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:.6px;color:var(--muted);margin-bottom:12px">
+        Reporte semanal automático
+      </div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Día de envío</label>
+          <select id="reporte-dia">
+            <option value="mon">Lunes</option>
+            <option value="tue">Martes</option>
+            <option value="wed">Miércoles</option>
+            <option value="thu">Jueves</option>
+            <option value="fri" selected>Viernes</option>
+            <option value="sat">Sábado</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Hora de envío (hora México)</label>
+          <input type="time" id="reporte-hora" value="08:00">
+        </div>
+      </div>
+
+      <div class="form-actions" style="margin-top:20px">
+        <button class="btn btn-primary" onclick="guardarEmail()">💾 Guardar configuración de email</button>
+        <span id="email-saved-msg" style="color:var(--ok);font-size:13px;font-weight:600;display:none">
+          ✅ Guardado correctamente
+        </span>
+      </div>
     </div>
   </div>
 
@@ -396,14 +511,118 @@ async function guardarEdicion() {
   else toast('❌ Error: ' + json.error);
 }
 let tt;
-function toast(msg) {
+function toast(msg, ok=true) {
   const el = document.getElementById('toast');
-  el.textContent = msg; el.classList.add('show');
-  clearTimeout(tt); tt = setTimeout(() => el.classList.remove('show'), 3000);
+  el.textContent = msg;
+  el.style.background = ok ? '#0f172a' : '#dc2626';
+  el.classList.add('show');
+  clearTimeout(tt); tt = setTimeout(() => el.classList.remove('show'), 3500);
 }
 document.getElementById('modal-editar').addEventListener('click', function(e) {
   if (e.target === this) cerrarModal();
 });
+
+// ── Email config ──────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', cargarEmailConfig);
+
+async function cargarEmailConfig() {
+  try {
+    const res = await fetch('/api/config');
+    const cfg = await res.json();
+    const e   = cfg.alertas.email;
+    const ec  = cfg.email_config || {};
+
+    document.getElementById('smtp-host').value      = ec.smtp_host    || 'smtp.gmail.com';
+    document.getElementById('smtp-port').value      = ec.smtp_port    || 587;
+    document.getElementById('smtp-usuario').value   = ec.usuario      || '';
+    document.getElementById('email-habilitado').checked = e.habilitado;
+    document.getElementById('reporte-dia').value    = ec.reporte_dia  || 'fri';
+    document.getElementById('reporte-hora').value   = ec.reporte_hora || '08:00';
+
+    // Destinatarios generales
+    const lista = document.getElementById('dest-lista');
+    lista.innerHTML = '';
+    (e.destinatarios || []).forEach(d => agregarDest('dest-lista', d));
+    if (!e.destinatarios?.length) agregarDest('dest-lista');
+
+    // Destinatarios críticos
+    const listaCrit = document.getElementById('dest-criticos-lista');
+    listaCrit.innerHTML = '';
+    (e.destinatarios_criticos || []).forEach(d => agregarDest('dest-criticos-lista', d));
+    if (!e.destinatarios_criticos?.length) agregarDest('dest-criticos-lista');
+
+    // Badge estado
+    const badge = document.getElementById('email-status-badge');
+    if (e.habilitado) {
+      badge.textContent = '✅ Activo';
+      badge.style.color = 'var(--ok)';
+    } else {
+      badge.textContent = '⛔ Desactivado';
+      badge.style.color = 'var(--crit)';
+    }
+  } catch(e) { console.error(e); }
+}
+
+function agregarDest(listaId, valor='') {
+  const lista = document.getElementById(listaId);
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:8px;align-items:center';
+  div.innerHTML = `
+    <input type="email" placeholder="correo@empresa.com" value="${valor}"
+           style="flex:1;padding:8px 12px;border:1.5px solid var(--border);
+                  border-radius:8px;font-size:13px;outline:none">
+    <button type="button" onclick="this.parentElement.remove()"
+            style="background:#fee2e2;border:none;border-radius:6px;padding:6px 10px;
+                   cursor:pointer;color:var(--crit);font-size:14px">✕</button>`;
+  lista.appendChild(div);
+  div.querySelector('input').focus();
+}
+
+function getDests(listaId) {
+  return [...document.getElementById(listaId).querySelectorAll('input')]
+    .map(i => i.value.trim()).filter(Boolean);
+}
+
+async function guardarEmail() {
+  const body = {
+    email_habilitado:      document.getElementById('email-habilitado').checked,
+    smtp_host:             document.getElementById('smtp-host').value.trim(),
+    smtp_port:             +document.getElementById('smtp-port').value,
+    smtp_usuario:          document.getElementById('smtp-usuario').value.trim(),
+    smtp_password:         document.getElementById('smtp-password').value || null,
+    destinatarios:         getDests('dest-lista'),
+    destinatarios_criticos:getDests('dest-criticos-lista'),
+    reporte_dia:           document.getElementById('reporte-dia').value,
+    reporte_hora:          document.getElementById('reporte-hora').value,
+  };
+  if (!body.destinatarios.length) { toast('⚠️ Agrega al menos un destinatario', false); return; }
+  try {
+    const res  = await fetch('/api/config', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (json.ok) {
+      const msg = document.getElementById('email-saved-msg');
+      msg.style.display = 'inline';
+      setTimeout(() => msg.style.display = 'none', 3000);
+      toast('✅ Configuración de email guardada');
+      cargarEmailConfig();
+    } else { toast('❌ Error: ' + json.error, false); }
+  } catch(e) { toast('❌ Error al guardar', false); }
+}
+
+async function probarEmail() {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = '⏳ Enviando...';
+  try {
+    const res  = await fetch('/api/email-prueba', { method: 'POST' });
+    const json = await res.json();
+    if (json.ok) toast('✅ Correo de prueba enviado');
+    else         toast('❌ Error: ' + json.error, false);
+  } catch(e) { toast('❌ Error al enviar', false); }
+  finally { btn.disabled = false; btn.textContent = '🧪 Enviar correo de prueba'; }
+}
 </script>
 </body>
 </html>
