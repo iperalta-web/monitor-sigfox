@@ -40,7 +40,15 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "sigfox-monitor-secret-2024-iotnet")
 
 # Inicializar DB siempre al arrancar (con o sin gunicorn)
-init_db()
+_db_url = os.environ.get("DATABASE_URL", "")
+if not _db_url:
+    print("  [ERROR] DATABASE_URL no configurada. Define la variable de entorno.")
+else:
+    try:
+        init_db()
+        print("  [DB] Base de datos inicializada correctamente.")
+    except Exception as _e:
+        print(f"  [ERROR] No se pudo inicializar la BD: {_e}")
 
 # ── Cache en memoria + disco ──────────────────────────────────────────────────
 _cache   = {}

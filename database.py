@@ -14,11 +14,16 @@ from datetime import datetime
 import psycopg2
 import psycopg2.extras
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+def _get_url():
+    url = os.environ.get("DATABASE_URL", "")
+    # psycopg2 requiere postgresql://, no postgres://
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    return url
 
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = psycopg2.connect(_get_url(), cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
 
