@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iniciar sesión — Monitor Sigfox</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card {
+    background: white; border-radius: 20px;
+    padding: 44px 40px; width: 100%; max-width: 400px;
+    box-shadow: 0 25px 60px rgba(0,0,0,.4);
+  }
+  .logo {
+    text-align: center; margin-bottom: 32px;
+  }
+  .logo-icon { font-size: 48px; display: block; margin-bottom: 8px; }
+  .logo-title { font-size: 22px; font-weight: 800; color: #0f172a; }
+  .logo-sub { font-size: 13px; color: #64748b; margin-top: 4px; }
+  .field { margin-bottom: 18px; }
+  label { display: block; font-size: 13px; font-weight: 600;
+          color: #374151; margin-bottom: 6px; }
+  input[type=text], input[type=password] {
+    width: 100%; padding: 12px 14px;
+    border: 1.5px solid #e2e8f0; border-radius: 10px;
+    font-size: 14px; color: #0f172a; outline: none;
+    transition: border-color .2s;
+  }
+  input:focus { border-color: #1d4ed8; box-shadow: 0 0 0 3px rgba(29,78,216,.1); }
+  .btn-login {
+    width: 100%; padding: 13px;
+    background: linear-gradient(135deg, #1d4ed8, #2563eb);
+    color: white; border: none; border-radius: 10px;
+    font-size: 15px; font-weight: 700; cursor: pointer;
+    margin-top: 8px; transition: all .2s;
+    box-shadow: 0 4px 12px rgba(29,78,216,.3);
+  }
+  .btn-login:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(29,78,216,.4); }
+  .btn-login:active { transform: translateY(0); }
+  .error {
+    background: #fee2e2; color: #dc2626;
+    padding: 10px 14px; border-radius: 8px;
+    font-size: 13px; font-weight: 600;
+    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+  }
+  .footer { text-align: center; margin-top: 28px;
+             font-size: 12px; color: #94a3b8; }
+  .dots {
+    display: flex; gap: 6px; justify-content: center; margin-bottom: 24px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <span class="logo-icon">📡</span>
+    <div class="logo-title">{{ nombre_app }}</div>
+    <div class="logo-sub">{{ logo_empresa }}</div>
+  </div>
+
+  <div class="dots">
+    <div class="dot" style="background:#1d4ed8"></div>
+    <div class="dot" style="background:#3b82f6"></div>
+    <div class="dot" style="background:#93c5fd"></div>
+  </div>
+
+  {% if error %}
+  <div class="error">⚠️ {{ error }}</div>
+  {% endif %}
+
+  <form method="POST" action="/login">
+    <div class="field">
+      <label>Usuario</label>
+      <input type="text" name="username" placeholder="Tu usuario"
+             value="{{ username or '' }}" required autofocus>
+    </div>
+    <div class="field">
+      <label>Contraseña</label>
+      <input type="password" name="password" placeholder="••••••••" required>
+    </div>
+    <button type="submit" class="btn-login">Iniciar sesión →</button>
+  </form>
+
+  <div class="footer">
+    Monitor de mensajes Sigfox &copy; {{ año }} {{ logo_empresa }}
+  </div>
+</div>
+</body>
+</html>

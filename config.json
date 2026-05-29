@@ -1,0 +1,42 @@
+{
+  "sigfox": {
+    "login": "62147803aae760ee0c24591d",
+    "password": "8773c9e441f7157fb937cd4b260f2c75"
+  },
+  "archivos": {
+    "lista_devices": "lista_devices.csv",
+    "columna_ids": "IDs",
+    "directorio_resultados": "resultados"
+  },
+  "limites": {
+    "diario_default": 140,
+    "global_mensual": 5000000,
+    "por_dispositivo": {}
+  },
+  "alertas": {
+    "umbral_advertencia_pct": 50,
+    "umbral_critico_pct": 95,
+    "umbral_global_advertencia_pct": 75,
+    "umbral_global_critico_pct": 90,
+    "email": {
+      "habilitado": true,
+      "smtp_host": "smtp.gmail.com",
+      "smtp_port": 587,
+      "usar_tls": true,
+      "usuario": "TU_CORREO@gmail.com",
+      "password": "TU_APP_PASSWORD",
+      "remitente": "TU_CORREO@gmail.com",
+      "destinatarios": [
+        "iperalta@iotnet.mx"
+      ],
+      "destinatarios_criticos": [
+        "iperalta@iotnet.mx"
+      ]
+    }
+  },
+  "resumen_diario": {
+    "habilitado": true,
+    "hora": "08:00",
+    "incluir_tabla_completa": true
+  }
+}

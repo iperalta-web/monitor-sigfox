@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor Sigfox — IotNet</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<style>
+  :root {
+    --ok:    #16a34a;
+    --adv:   #d97706;
+    --crit:  #dc2626;
+    --blue:  #1d4ed8;
+    --bg:    #f1f5f9;
+    --card:  #ffffff;
+    --text:  #0f172a;
+    --muted: #64748b;
+    --border:#e2e8f0;
+    --radius:14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg);
+         color: var(--text); min-height: 100vh; }
+
+  /* ── Topbar ── */
+  .topbar {
+    background: #0f172a;
+    color: white;
+    padding: 0 28px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .topbar h1  { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+  .topbar-tag { background: #1d4ed8; font-size: 11px; padding: 2px 8px;
+                border-radius: 999px; font-weight: 600; }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  #clock { font-size: 13px; color: #94a3b8; }
+  .btn { padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer;
+         font-size: 13px; font-weight: 600; transition: all .15s; }
+  .btn-primary { background: #1d4ed8; color: white; }
+  .btn-primary:hover { background: #1e40af; }
+  .btn-outline { background: transparent; color: #94a3b8; border: 1px solid #334155; }
+  .btn-outline:hover { background: #1e293b; color: white; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ── Layout ── */
+  .layout { display: flex; min-height: calc(100vh - 56px); }
+  .sidebar {
+    width: 280px; min-width: 280px;
+    background: #fff;
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+  .main { flex: 1; padding: 24px 28px; overflow-y: auto; }
+
+  /* ── Sidebar ── */
+  .sidebar-section { margin-bottom: 24px; }
+  .sidebar-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
+                   letter-spacing: .8px; color: var(--muted); margin-bottom: 12px; }
+  label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; margin-top: 10px; }
+  input[type=number], select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; background: #f8fafc;
+    color: var(--text); outline: none;
+  }
+  input[type=number]:focus, select:focus { border-color: #1d4ed8; background: white; }
+  .save-btn { width: 100%; margin-top: 14px; padding: 9px; border-radius: 8px;
+              background: #1d4ed8; color: white; border: none; font-size: 13px;
+              font-weight: 600; cursor: pointer; }
+  .save-btn:hover { background: #1e40af; }
+  .saved-msg { color: var(--ok); font-size: 12px; text-align: center;
+               margin-top: 6px; display: none; }
+
+  /* ── Pool banner ── */
+  .pool-banner {
+    border-radius: var(--radius);
+    padding: 24px 28px;
+    margin-bottom: 22px;
+    border: 2px solid var(--border);
+    transition: all .3s;
+  }
+  .pool-banner.ok   { background: #f0fdf4; border-color: #86efac; }
+  .pool-banner.adv  { background: #fffbeb; border-color: #fcd34d; }
+  .pool-banner.crit { background: #fff1f2; border-color: #fca5a5; }
+
+  .pool-top { display: flex; align-items: flex-start; justify-content: space-between;
+              flex-wrap: wrap; gap: 16px; }
+  .pool-pct {
+    font-size: 72px; font-weight: 900; line-height: 1;
+    letter-spacing: -3px;
+  }
+  .ok   .pool-pct { color: var(--ok); }
+  .adv  .pool-pct { color: var(--adv); }
+  .crit .pool-pct { color: var(--crit); }
+  .pool-label { font-size: 13px; font-weight: 700; text-transform: uppercase;
+                letter-spacing: 1px; margin-top: 6px; }
+  .pool-sublabel { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .pool-stats { display: flex; gap: 28px; flex-wrap: wrap; }
+  .pool-stat { text-align: right; }
+  .pool-stat-val { font-size: 22px; font-weight: 800; }
+  .pool-stat-lbl { font-size: 11px; color: var(--muted); text-transform: uppercase;
+                   letter-spacing: .5px; }
+  .pool-bar-wrap { margin-top: 18px; }
+  .pool-bar-bg {
+    background: #e2e8f0; border-radius: 999px; height: 20px;
+    position: relative; overflow: hidden;
+  }
+  .pool-bar-fill {
+    height: 100%; border-radius: 999px; transition: width .6s cubic-bezier(.4,0,.2,1);
+    display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 10px; font-size: 12px; font-weight: 700; color: white;
+    min-width: 44px;
+  }
+  .ok   .pool-bar-fill { background: linear-gradient(90deg, #4ade80, #16a34a); }
+  .adv  .pool-bar-fill { background: linear-gradient(90deg, #fcd34d, #d97706); }
+  .crit .pool-bar-fill { background: linear-gradient(90deg, #f87171, #dc2626); }
+  .pool-bar-marks {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--muted); margin-top: 5px;
+  }
+
+  /* ── KPI grid ── */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+              gap: 14px; margin-bottom: 22px; }
+  .kpi-card {
+    background: var(--card); border-radius: var(--radius);
+    padding: 16px 18px; border: 1px solid var(--border);
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .kpi-lbl { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .kpi-val { font-size: 22px; font-weight: 800; color: var(--text); }
+  .kpi-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* ── Sección ── */
+  .section { margin-bottom: 24px; }
+  .section-title {
+    font-size: 15px; font-weight: 700; color: var(--text);
+    margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+  }
+  .card {
+    background: var(--card); border-radius: var(--radius);
+    border: 1px solid var(--border); padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media(max-width:900px) { .charts-row { grid-template-columns: 1fr; } }
+
+  /* ── Tabla ── */
+  .table-controls {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 14px; align-items: center;
+  }
+  .search-box {
+    padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 13px; width: 220px; outline: none;
+  }
+  .search-box:focus { border-color: #1d4ed8; }
+  .filter-btns { display: flex; gap: 6px; }
+  .filter-btn {
+    padding: 6px 12px; border-radius: 999px; border: 1.5px solid var(--border);
+    font-size: 12px; font-weight: 600; cursor: pointer; background: white;
+    transition: all .15s;
+  }
+  .filter-btn.active-ok   { background: #dcfce7; border-color: var(--ok);   color: var(--ok); }
+  .filter-btn.active-adv  { background: #fef3c7; border-color: var(--adv);  color: var(--adv); }
+  .filter-btn.active-crit { background: #fee2e2; border-color: var(--crit); color: var(--crit); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    background: #f8fafc; padding: 10px 12px; text-align: left;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--muted); border-bottom: 2px solid var(--border);
+    cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  th:hover { background: #f1f5f9; }
+  th .sort-arrow { margin-left: 4px; opacity: .4; }
+  th.sorted .sort-arrow { opacity: 1; color: var(--blue); }
+  td {
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f8fafc; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  }
+  .badge-ok   { background: #dcfce7; color: var(--ok); }
+  .badge-adv  { background: #fef3c7; color: var(--adv); }
+  .badge-crit { background: #fee2e2; color: var(--crit); }
+  .mini-bar-bg { background: #e2e8f0; border-radius: 999px; height: 6px;
+                 width: 80px; display: inline-block; vertical-align: middle; }
+  .mini-bar-fill { height: 6px; border-radius: 999px; }
+
+  /* ── Loader ── */
+  .loader-overlay {
+    position: fixed; inset: 0; background: rgba(15,23,42,.6);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 999; gap: 16px;
+  }
+  .spinner {
+    width: 48px; height: 48px;
+    border: 4px solid rgba(255,255,255,.2);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loader-text { color: white; font-size: 15px; font-weight: 600; }
+  .loader-sub  { color: #94a3b8; font-size: 13px; }
+  .hidden { display: none !important; }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: #0f172a; color: white;
+    padding: 12px 20px; border-radius: 10px;
+    font-size: 13px; font-weight: 600;
+    box-shadow: 0 4px 20px rgba(0,0,0,.3);
+    transform: translateY(80px); opacity: 0;
+    transition: all .3s; z-index: 200;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+
+  /* ── Status dot ── */
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block; margin-right: 6px;
+  }
+  .dot-ok { background: var(--ok); box-shadow: 0 0 0 3px #dcfce7; }
+  .dot-adv { background: var(--adv); box-shadow: 0 0 0 3px #fef3c7; }
+  .dot-crit { background: var(--crit); animation: pulse-red 1.2s infinite;
+               box-shadow: 0 0 0 3px #fee2e2; }
+  @keyframes pulse-red { 0%,100% { opacity:1 } 50% { opacity:.4 } }
+</style>
+</head>
+<body>
+
+<!-- Loader -->
+<div class="loader-overlay" id="loader">
+  <div class="spinner"></div>
+  <div class="loader-text">Consultando API de Sigfox...</div>
+  <div class="loader-sub" id="loader-sub">Obteniendo datos de dispositivos</div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Topbar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span style="font-size:22px">📡</span>
+    <h1>{{ nombre_app }}</h1>
+    <span class="topbar-tag">{{ logo_empresa }}</span>
+  </div>
+  <div class="topbar-right">
+    <span id="clock"></span>
+    {% if usuario and usuario.rol == 'admin' %}
+    <a href="/admin" class="btn btn-outline">👥 Usuarios</a>
+    {% endif %}
+    <button class="btn btn-outline" onclick="openConfig()">⚙️ Config</button>
+    <button class="btn btn-primary" id="btn-refresh" onclick="refrescar()">🔄 Actualizar</button>
+    <span style="font-size:13px;color:#94a3b8">{{ usuario.username if usuario else '' }}</span>
+    <a href="/logout" class="btn btn-outline" style="padding:6px 12px">Salir</a>
+  </div>
+</div>
+
+<!-- Layout -->
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-title">📅 Período</div>
+      <label>Año</label>
+      <select id="sel-year"></select>
+      <label>Mes</label>
+      <select id="sel-month">
+        <option value="1">Enero</option><option value="2">Febrero</option>
+        <option value="3">Marzo</option><option value="4">Abril</option>
+        <option value="5">Mayo</option><option value="6">Junio</option>
+        <option value="7">Julio</option><option value="8">Agosto</option>
+        <option value="9">Septiembre</option><option value="10">Octubre</option>
+        <option value="11">Noviembre</option><option value="12">Diciembre</option>
+      </select>
+      <button class="save-btn" onclick="cargarDatos()">📊 Consultar</button>
+    </div>
+
+    <div class="sidebar-section" id="sidebar-limits">
+      <div class="sidebar-title">🎯 Límites</div>
+      <label>Límite global mensual</label>
+      <input type="number" id="cfg-limite-global" step="100000">
+      <label>Límite diario por dispositivo</label>
+      <input type="number" id="cfg-limite-diario" step="10">
+      <label>% Advertencia global</label>
+      <input type="number" id="cfg-adv-global" min="1" max="99">
+      <label>% Crítico global</label>
+      <input type="number" id="cfg-crit-global" min="1" max="100">
+      <label>% Advertencia por dispositivo</label>
+      <input type="number" id="cfg-adv-dev" min="1" max="99">
+      <label>% Crítico por dispositivo</label>
+      <input type="number" id="cfg-crit-dev" min="1" max="100">
+      <button class="save-btn" onclick="guardarConfig()">💾 Guardar límites</button>
+      <div class="saved-msg" id="saved-msg">✅ Guardado correctamente</div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-title">ℹ️ Info</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.6">
+        <div>Datos cacheados 5 min</div>
+        <div id="info-actualizado" style="margin-top:6px"></div>
+        <div id="info-dispositivos" style="margin-top:4px"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- Pool Banner -->
+    <div class="pool-banner ok" id="pool-banner">
+      <div class="pool-top">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--muted);
+                      text-transform:uppercase;letter-spacing:1px;margin-bottom:6px"
+               id="pool-periodo">Pool de mensajes</div>
+          <div class="pool-pct" id="pool-pct">—</div>
+          <div class="pool-label" id="pool-estado-label">—</div>
+          <div class="pool-sublabel" id="pool-sublabel">del pool mensual consumido</div>
+        </div>
+        <div class="pool-stats">
+          <div class="pool-stat">
+            <div class="pool-stat-val" id="pool-consumidos">—</div>
+            <div class="pool-stat-lbl">Consumidos</div>
+          </div>
+          <div class="pool-stat">
+            <div class="pool-stat-val" id="pool-limite">—</div>
+            <div class="pool-stat-lbl">Límite del pool</div>
+          </div>
+          <div class="pool-stat">
+            <div class="pool-stat-val" style="color:var(--ok)" id="pool-disponibles">—</div>
+            <div class="pool-stat-lbl">Disponibles</div>
+          </div>
+        </div>
+      </div>
+      <div class="pool-bar-wrap">
+        <div class="pool-bar-bg">
+          <div class="pool-bar-fill" id="pool-bar" style="width:0%">0%</div>
+        </div>
+        <div class="pool-bar-marks">
+          <span>0</span>
+          <span id="pool-mark-adv"></span>
+          <span id="pool-mark-crit"></span>
+          <span id="pool-mark-limite"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-grid" id="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-lbl">Días transcurridos</div>
+        <div class="kpi-val" id="kpi-dias">—</div>
+        <div class="kpi-sub" id="kpi-dias-sub"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-lbl">Proyección fin de mes</div>
+        <div class="kpi-val" id="kpi-proyeccion">—</div>
+        <div class="kpi-sub" id="kpi-proy-sub"></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-lbl">Ritmo máximo permitido</div>
+        <div class="kpi-val" id="kpi-ritmo">—</div>
+        <div class="kpi-sub">msgs/día para no exceder</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-lbl">% del ritmo esperado</div>
+        <div class="kpi-val" id="kpi-pct-ritmo">—</div>
+        <div class="kpi-sub">consumo vs ritmo lineal</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-lbl">Dispositivos</div>
+        <div class="kpi-val" id="kpi-devs">—</div>
+        <div class="kpi-sub" id="kpi-devs-sub"></div>
+      </div>
+    </div>
+
+    <!-- Gráficas -->
+    <div class="charts-row section">
+      <div class="card">
+        <div class="section-title">📈 Acumulado diario del pool</div>
+        <canvas id="chart-acum" height="200"></canvas>
+      </div>
+      <div class="card">
+        <div class="section-title">📊 Mensajes por día</div>
+        <canvas id="chart-barras" height="200"></canvas>
+      </div>
+    </div>
+
+    <!-- Tabla dispositivos -->
+    <div class="section">
+      <div class="section-title">📋 Dispositivos</div>
+      <div class="card">
+        <div class="table-controls">
+          <input type="text" class="search-box" id="search-box"
+                 placeholder="🔍 Buscar ID dispositivo..." oninput="filtrarTabla()">
+          <div class="filter-btns">
+            <button class="filter-btn active-crit" id="flt-crit"
+                    onclick="toggleFiltro('crit')">🔴 Crítico <span id="cnt-crit">0</span></button>
+            <button class="filter-btn active-adv" id="flt-adv"
+                    onclick="toggleFiltro('adv')">🟡 Advertencia <span id="cnt-adv">0</span></button>
+            <button class="filter-btn active-ok" id="flt-ok"
+                    onclick="toggleFiltro('ok')">🟢 OK <span id="cnt-ok">0</span></button>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table id="tabla-devs">
+            <thead>
+              <tr>
+                <th onclick="sortTabla('estado')">Estado <span class="sort-arrow">↕</span></th>
+                <th onclick="sortTabla('id')">ID Dispositivo <span class="sort-arrow">↕</span></th>
+                <th onclick="sortTabla('total')" class="sorted">Msgs acumulados <span class="sort-arrow">↓</span></th>
+                <th onclick="sortTabla('pct')">% del límite <span class="sort-arrow">↕</span></th>
+                <th onclick="sortTabla('promedio_dia')">Prom/día <span class="sort-arrow">↕</span></th>
+                <th onclick="sortTabla('limite_dia')">Límite/día <span class="sort-arrow">↕</span></th>
+                <th onclick="sortTabla('dias_datos')">Días con datos <span class="sort-arrow">↕</span></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-devs"></tbody>
+          </table>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:10px" id="tabla-footer"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Modal Configuración -->
+<div id="modal-overlay" class="hidden"
+     style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;
+            display:flex;align-items:center;justify-content:center"
+     onclick="if(event.target===this)closeConfig()">
+  <div style="background:white;border-radius:16px;padding:28px;width:420px;
+              max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="font-size:18px">⚙️ Configuración de alertas</h2>
+      <button onclick="closeConfig()" style="background:none;border:none;
+              font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
+    </div>
+    <label>Destinatarios de email (uno por línea)</label>
+    <textarea id="modal-dest" rows="4"
+              style="width:100%;padding:8px;border:1px solid var(--border);
+                     border-radius:8px;font-size:13px;margin-top:6px;resize:vertical"></textarea>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;cursor:pointer">
+      <input type="checkbox" id="modal-email-hab" style="width:16px;height:16px">
+      Enviar alertas por email
+    </label>
+    <button class="save-btn" style="margin-top:18px" onclick="guardarEmail()">
+      💾 Guardar
+    </button>
+    <div id="modal-saved" style="color:var(--ok);font-size:12px;text-align:center;
+                                  margin-top:8px;display:none">✅ Guardado</div>
+  </div>
+</div>
+
+<script>
+// ── Estado global ─────────────────────────────────────────────────────────────
+let datos = null;
+let filtros = { crit: true, adv: true, ok: true };
+let sortKey = 'total';
+let sortAsc = false;
+let chartAcum = null;
+let chartBarras = null;
+
+const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio',
+               'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initSelectors();
+  initClock();
+  cargarConfig();
+  cargarDatos();
+});
+
+function initSelectors() {
+  const hoy = new Date();
+  const selYear = document.getElementById('sel-year');
+  for (let y = hoy.getFullYear(); y >= hoy.getFullYear() - 2; y--) {
+    const o = document.createElement('option');
+    o.value = y; o.textContent = y;
+    selYear.appendChild(o);
+  }
+  selYear.value = hoy.getFullYear();
+  document.getElementById('sel-month').value = hoy.getMonth() + 1;
+}
+
+function initClock() {
+  const el = document.getElementById('clock');
+  setInterval(() => {
+    el.textContent = new Date().toLocaleTimeString('es-MX');
+  }, 1000);
+}
+
+// ── Consulta de datos ─────────────────────────────────────────────────────────
+async function cargarDatos(force = false) {
+  const year  = document.getElementById('sel-year').value;
+  const month = document.getElementById('sel-month').value;
+  mostrarLoader(true);
+  document.getElementById('btn-refresh').disabled = true;
+  document.getElementById('loader-sub').textContent =
+    `Consultando ${MESES[+month]} ${year}...`;
+
+  try {
+    const url = `/api/datos?year=${year}&month=${month}&force=${force}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Error desconocido');
+    datos = json.datos;
+    renderDashboard();
+    toast('✅ Datos actualizados');
+  } catch (e) {
+    toast('❌ Error: ' + e.message, true);
+    console.error(e);
+  } finally {
+    mostrarLoader(false);
+    document.getElementById('btn-refresh').disabled = false;
+  }
+}
+
+function refrescar() { cargarDatos(true); }
+
+// ── Render principal ──────────────────────────────────────────────────────────
+function renderDashboard() {
+  if (!datos) return;
+  renderPoolBanner();
+  renderKPIs();
+  renderCharts();
+  renderTabla();
+  renderInfo();
+}
+
+// ── Pool Banner ───────────────────────────────────────────────────────────────
+function renderPoolBanner() {
+  const d = datos;
+  const pct = d.pct_global;
+  const banner = document.getElementById('pool-banner');
+  banner.className = 'pool-banner ' + estadoClass(d.estado_global);
+
+  document.getElementById('pool-pct').textContent = pct + '%';
+  document.getElementById('pool-periodo').textContent =
+    `Pool de mensajes — ${d.mes_nombre} ${d.year}`;
+
+  const estadoTextos = { OK: '✅ NORMAL', ADVERTENCIA: '⚠️ ADVERTENCIA', CRITICO: '🚨 CRÍTICO' };
+  const dot = `<span class="status-dot dot-${d.estado_global.toLowerCase().replace('ó','o')}"></span>`;
+  document.getElementById('pool-estado-label').innerHTML = dot + (estadoTextos[d.estado_global] || d.estado_global);
+  document.getElementById('pool-sublabel').textContent = 'del pool mensual consumido';
+
+  document.getElementById('pool-consumidos').textContent  = fmt(d.total_global);
+  document.getElementById('pool-limite').textContent      = fmt(d.limite_global);
+  document.getElementById('pool-disponibles').textContent = fmt(d.disponibles);
+
+  const bar = document.getElementById('pool-bar');
+  const fill = Math.min(pct, 100);
+  setTimeout(() => { bar.style.width = fill + '%'; bar.textContent = pct + '%'; }, 50);
+
+  document.getElementById('pool-mark-adv').textContent   = `⚠️ ${d.umbral_adv}%`;
+  document.getElementById('pool-mark-crit').textContent  = `🔴 ${d.umbral_crit}%`;
+  document.getElementById('pool-mark-limite').textContent = fmt(d.limite_global);
+}
+
+// ── KPIs ──────────────────────────────────────────────────────────────────────
+function renderKPIs() {
+  const d = datos;
+  document.getElementById('kpi-dias').textContent      = `${d.dia_corte} / ${d.dias_mes}`;
+  document.getElementById('kpi-dias-sub').textContent  = `${d.dias_restantes} días restantes`;
+  document.getElementById('kpi-proyeccion').textContent = fmt(d.proyeccion);
+  const delta = d.proyeccion - d.limite_global;
+  const sub = document.getElementById('kpi-proy-sub');
+  sub.textContent = (delta > 0 ? `+${fmt(delta)} sobre el límite` : `${fmt(Math.abs(delta))} bajo el límite`);
+  sub.style.color = delta > 0 ? 'var(--crit)' : 'var(--ok)';
+  document.getElementById('kpi-ritmo').textContent    = fmt(d.ritmo_necesario) + '/día';
+  document.getElementById('kpi-pct-ritmo').textContent = d.pct_ritmo + '%';
+  document.getElementById('kpi-devs').textContent      = d.num_dispositivos;
+  document.getElementById('kpi-devs-sub').innerHTML   =
+    `<span style="color:var(--crit)">🔴 ${d.num_criticos}</span> &nbsp;` +
+    `<span style="color:var(--adv)">🟡 ${d.num_advertencias}</span> &nbsp;` +
+    `<span style="color:var(--ok)">🟢 ${d.num_ok}</span>`;
+  document.getElementById('cnt-crit').textContent = d.num_criticos;
+  document.getElementById('cnt-adv').textContent  = d.num_advertencias;
+  document.getElementById('cnt-ok').textContent   = d.num_ok;
+}
+
+// ── Charts ────────────────────────────────────────────────────────────────────
+function renderCharts() {
+  const d = datos;
+  const labels = Array.from({length: d.dias_mes}, (_, i) => i + 1);
+  const serie = d.serie_global;
+
+  // Acumulado
+  const acum = [];
+  let acc = 0;
+  serie.forEach(v => { acc += (v || 0); acum.push(acc); });
+
+  const ritmoEsperado = labels.map(dia => d.limite_global * dia / d.dias_mes);
+  const limiteLine    = labels.map(() => d.limite_global);
+
+  // Proyección desde día corte
+  const proyX = [], proyY = [];
+  if (d.dia_corte < d.dias_mes && d.total_global > 0) {
+    const ritmo = d.total_global / d.dia_corte;
+    for (let dia = d.dia_corte; dia <= d.dias_mes; dia++) {
+      proyX.push(dia);
+      proyY.push(d.total_global + ritmo * (dia - d.dia_corte));
+    }
+  }
+
+  // Datos acumulado hasta hoy + null después
+  const acumVisible = acum.map((v, i) => i < d.dia_corte ? v : null);
+  const proyFull    = labels.map((dia) => {
+    const idx = proyX.indexOf(dia);
+    return idx >= 0 ? proyY[idx] : null;
+  });
+
+  if (chartAcum) chartAcum.destroy();
+  chartAcum = new Chart(document.getElementById('chart-acum'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Consumo acumulado', data: acumVisible,
+          borderColor: '#1d4ed8', borderWidth: 2.5,
+          backgroundColor: 'rgba(29,78,216,.08)', fill: true,
+          tension: .3, pointRadius: 0, pointHoverRadius: 4 },
+        { label: 'Ritmo esperado', data: ritmoEsperado,
+          borderColor: '#16a34a', borderWidth: 1.5, borderDash: [5,4],
+          fill: false, tension: 0, pointRadius: 0 },
+        { label: 'Límite pool', data: limiteLine,
+          borderColor: '#dc2626', borderWidth: 1.5, borderDash: [8,4],
+          fill: false, tension: 0, pointRadius: 0 },
+        { label: 'Proyección', data: proyFull,
+          borderColor: '#d97706', borderWidth: 2, borderDash: [4,3],
+          fill: false, tension: .3, pointRadius: 0 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                 datalabels: { display: false } },
+      scales: {
+        y: { ticks: { callback: v => fmtK(v), font: { size: 11 } },
+             grid: { color: '#f1f5f9' } },
+        x: { ticks: { font: { size: 11 } }, grid: { display: false } }
+      }
+    }
+  });
+
+  // Barras diarias
+  const barColors = serie.slice(0, d.dia_corte).map(v =>
+    v > d.limite_global / d.dias_mes ? '#dc2626' :
+    v > d.limite_global / d.dias_mes * .8 ? '#f59e0b' : '#3b82f6'
+  );
+
+  if (chartBarras) chartBarras.destroy();
+  chartBarras = new Chart(document.getElementById('chart-barras'), {
+    type: 'bar',
+    data: {
+      labels: labels.slice(0, d.dia_corte),
+      datasets: [{
+        label: 'Mensajes del día', data: serie.slice(0, d.dia_corte),
+        backgroundColor: barColors, borderRadius: 4, borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: { legend: { display: false }, datalabels: { display: false } },
+      scales: {
+        y: { ticks: { callback: v => fmtK(v), font: { size: 11 } },
+             grid: { color: '#f1f5f9' } },
+        x: { ticks: { font: { size: 11 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+// ── Tabla dispositivos ────────────────────────────────────────────────────────
+function renderTabla() {
+  if (!datos) return;
+  const search = document.getElementById('search-box').value.toLowerCase();
+  let devs = [...datos.dispositivos];
+
+  // Filtros estado
+  devs = devs.filter(d => {
+    if (d.estado === 'CRITICO'     && !filtros.crit) return false;
+    if (d.estado === 'ADVERTENCIA' && !filtros.adv)  return false;
+    if (d.estado === 'OK'          && !filtros.ok)   return false;
+    if (search && !d.id.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  // Ordenar
+  devs.sort((a, b) => {
+    let va = a[sortKey], vb = b[sortKey];
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    return sortAsc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
+  });
+
+  const tbody = document.getElementById('tbody-devs');
+  tbody.innerHTML = devs.map(d => {
+    const cls = { CRITICO: 'crit', ADVERTENCIA: 'adv', OK: 'ok' }[d.estado] || 'ok';
+    const badgeTxt = { CRITICO: '🔴 Crítico', ADVERTENCIA: '🟡 Advertencia', OK: '🟢 OK' }[d.estado];
+    const barW = Math.min(d.pct, 100);
+    const barClr = d.pct >= 95 ? '#dc2626' : d.pct >= 75 ? '#f59e0b' : '#16a34a';
+    return `<tr>
+      <td><span class="badge badge-${cls}">${badgeTxt}</span></td>
+      <td style="font-family:monospace;font-weight:600">${d.id}</td>
+      <td style="text-align:right;font-weight:700">${fmt(d.total)}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-weight:700;color:${barClr};min-width:42px">${d.pct}%</span>
+          <div class="mini-bar-bg">
+            <div class="mini-bar-fill" style="width:${barW}%;background:${barClr}"></div>
+          </div>
+        </div>
+      </td>
+      <td style="text-align:right">${d.promedio_dia}</td>
+      <td style="text-align:right">${fmt(d.limite_dia)}</td>
+      <td style="text-align:right">${d.dias_datos}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('tabla-footer').textContent =
+    `Mostrando ${devs.length} de ${datos.dispositivos.length} dispositivos`;
+}
+
+function filtrarTabla() { renderTabla(); }
+
+function toggleFiltro(tipo) {
+  filtros[tipo] = !filtros[tipo];
+  const mapCls = { crit: 'active-crit', adv: 'active-adv', ok: 'active-ok' };
+  const btn = document.getElementById('flt-' + tipo);
+  if (filtros[tipo]) btn.classList.add(mapCls[tipo]);
+  else btn.classList.remove(mapCls[tipo]);
+  renderTabla();
+}
+
+let sortDir = {};
+function sortTabla(key) {
+  document.querySelectorAll('th').forEach(t => t.classList.remove('sorted'));
+  sortDir[key] = !sortDir[key];
+  sortKey = key;
+  sortAsc = sortDir[key];
+  // Marcar columna activa
+  const ths = document.querySelectorAll('#tabla-devs th');
+  const keys = ['estado','id','total','pct','promedio_dia','limite_dia','dias_datos'];
+  const idx = keys.indexOf(key);
+  if (idx >= 0) {
+    ths[idx].classList.add('sorted');
+    ths[idx].querySelector('.sort-arrow').textContent = sortAsc ? '↑' : '↓';
+  }
+  renderTabla();
+}
+
+// ── Info sidebar ──────────────────────────────────────────────────────────────
+function renderInfo() {
+  if (!datos) return;
+  document.getElementById('info-actualizado').textContent = '🕐 ' + datos.actualizado;
+  document.getElementById('info-dispositivos').textContent =
+    `📡 ${datos.num_dispositivos} dispositivos`;
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
+async function cargarConfig() {
+  try {
+    const res = await fetch('/api/config');
+    const cfg = await res.json();
+    document.getElementById('cfg-limite-global').value = cfg.limites.global_mensual;
+    document.getElementById('cfg-limite-diario').value = cfg.limites.diario_default;
+    document.getElementById('cfg-adv-global').value    = cfg.alertas.umbral_global_advertencia_pct;
+    document.getElementById('cfg-crit-global').value   = cfg.alertas.umbral_global_critico_pct;
+    document.getElementById('cfg-adv-dev').value       = cfg.alertas.umbral_advertencia_pct;
+    document.getElementById('cfg-crit-dev').value      = cfg.alertas.umbral_critico_pct;
+    document.getElementById('modal-dest').value        = cfg.alertas.email.destinatarios.join('\n');
+    document.getElementById('modal-email-hab').checked = cfg.alertas.email.habilitado;
+  } catch(e) { console.error(e); }
+}
+
+async function guardarConfig() {
+  const body = {
+    limite_global:    +document.getElementById('cfg-limite-global').value,
+    limite_diario:    +document.getElementById('cfg-limite-diario').value,
+    umbral_global_adv: +document.getElementById('cfg-adv-global').value,
+    umbral_global_crit:+document.getElementById('cfg-crit-global').value,
+    umbral_adv:        +document.getElementById('cfg-adv-dev').value,
+    umbral_crit:       +document.getElementById('cfg-crit-dev').value,
+  };
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (json.ok) {
+      const msg = document.getElementById('saved-msg');
+      msg.style.display = 'block';
+      setTimeout(() => msg.style.display = 'none', 2500);
+      toast('✅ Límites guardados — recargando datos...');
+      setTimeout(() => cargarDatos(true), 800);
+    }
+  } catch(e) { toast('❌ Error al guardar', true); }
+}
+
+function openConfig() {
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+function closeConfig() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+async function guardarEmail() {
+  const dest = document.getElementById('modal-dest').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  const hab  = document.getElementById('modal-email-hab').checked;
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ destinatarios: dest, email_habilitado: hab })
+    });
+    const json = await res.json();
+    if (json.ok) {
+      document.getElementById('modal-saved').style.display = 'block';
+      setTimeout(() => document.getElementById('modal-saved').style.display = 'none', 2500);
+      toast('✅ Email guardado');
+    }
+  } catch(e) { toast('❌ Error', true); }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmt(n) {
+  if (n === null || n === undefined) return '—';
+  return Math.round(n).toLocaleString('es-MX');
+}
+function fmtK(n) {
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000)     return (n/1_000).toFixed(0) + 'K';
+  return n;
+}
+function estadoClass(e) {
+  return { OK: 'ok', ADVERTENCIA: 'adv', CRITICO: 'crit' }[e] || 'ok';
+}
+function mostrarLoader(show) {
+  document.getElementById('loader').style.display = show ? 'flex' : 'none';
+}
+let toastTimer;
+function toast(msg, error = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.background = error ? '#dc2626' : '#0f172a';
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>
