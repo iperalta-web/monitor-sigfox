@@ -425,41 +425,8 @@ def _refresh_background(year, month):
         _refreshing.discard(key)
 
 
-@app.route("/api/datos")
-@login_required
-def api_datos():
-    import threading
-    hoy   = date.today()
-    year  = request.args.get("year",  str(hoy.year))
-    month = request.args.get("month", str(hoy.month))
-    force = request.args.get("force", "false") == "true"
-    key   = f"{year}_{month}"
-
-    if force:
-        # Forzado: espera la respuesta fresca
-        try:
-            datos = obtener_datos(year, month, force=True)
-            return jsonify({"ok": True, "datos": datos, "desde_cache": False})
-        except Exception as e:
-            return jsonify({"ok": False, "error": str(e)}), 500
-
-    # Modo normal: devuelve cache al instante
-    stale = cache_get_stale(key)
-    fresh = cache_get(key)  # None si venció
-
-    if fresh:
-        # Cache vigente — devuelve inmediatamente
-        return jsonify({"ok": True, "datos": fresh, "desde_cache": True})
-
-    if stale:
-        # Cache vencida — devuelve los viejos y refresca en background
-        threading.Thread(target=_refresh_background, args=(year, month), daemon=True).start()
-        stale["actualizando"] = True
-        return jsonify({"ok": True, "datos": stale, "desde_cache": True, "actualizando": True})
-
-    # Sin cache — inicia fetch en background y responde inmediatamente
-    threading.Thread(target=_refresh_background, args=(year, month), daemon=True).start()
-    placeholder = {
+def _make_placeholder(year, month):
+    return {
         "year": year, "month": month,
         "mes_nombre": calendar.month_name[int(month)],
         "dia_corte": date.today().day,
@@ -473,7 +440,45 @@ def api_datos():
         "num_advertencias": 0, "num_ok": 0,
         "actualizado": "Cargando...", "actualizando": True,
     }
-    return jsonify({"ok": True, "datos": placeholder,
+
+
+@app.route("/api/datos")
+@login_required
+def api_datos():
+    import threading
+    hoy   = date.today()
+    year  = request.args.get("year",  str(hoy.year))
+    month = request.args.get("month", str(hoy.month))
+    force = request.args.get("force", "false") == "true"
+    key   = f"{year}_{month}"
+
+    # Siempre no-bloqueante: inicia refresh en background y responde al instante
+    stale = cache_get_stale(key)
+    fresh = cache_get(key)  # None si venció
+
+    if force:
+        # Forzado: invalida cache e inicia refresco en background
+        threading.Thread(target=_refresh_background, args=(year, month), daemon=True).start()
+        if stale:
+            stale["actualizando"] = True
+            return jsonify({"ok": True, "datos": stale, "desde_cache": True, "actualizando": True})
+        # Sin datos previos aún
+        placeholder = _make_placeholder(year, month)
+        return jsonify({"ok": True, "datos": placeholder, "desde_cache": False, "actualizando": True})
+
+    if fresh:
+        # Cache vigente — devuelve inmediatamente
+        return jsonify({"ok": True, "datos": fresh, "desde_cache": True})
+
+    if stale:
+        # Cache vencida — devuelve los viejos y refresca en background
+        threading.Thread(target=_refresh_background, args=(year, month), daemon=True).start()
+        stale["actualizando"] = True
+        return jsonify({"ok": True, "datos": stale, "desde_cache": True, "actualizando": True})
+
+    # Sin cache — inicia fetch en background y responde inmediatamente
+    threading.Thread(target=_refresh_background, args=(year, month), daemon=True).start()
+    return jsonify({"ok": True, "datos": _make_placeholder(year, month),
                     "desde_cache": False, "actualizando": True})
 
 
