@@ -19,7 +19,6 @@ from email.mime.base import MIMEBase
 from email import encoders
 from functools import wraps
 
-import pandas as pd
 import requests
 from flask import (Flask, jsonify, render_template, request,
                    redirect, url_for, session, flash, Response)
