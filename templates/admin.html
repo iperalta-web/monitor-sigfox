@@ -368,9 +368,10 @@
   <div class="card">
     <div class="card-header">
       <div class="card-title">📡 Dispositivos Sigfox</div>
-      <div style="display:flex;gap:10px;align-items:center">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span style="font-size:13px;color:var(--muted)">
-          <b id="cnt-devs">{{ dispositivos|length }}</b> dispositivos activos
+          <b id="cnt-devs">{{ dispositivos|select('equalto',{'activo':1})|list|length if false else dispositivos|selectattr('activo')|list|length }}</b> activos /
+          <b id="cnt-total">{{ dispositivos|length }}</b> total
         </span>
         <button class="btn btn-primary btn-sm" onclick="document.getElementById('upload-area').style.display='block'">
           ⬆️ Cargar CSV
@@ -421,44 +422,88 @@
         </button>
       </div>
 
+      <!-- Barra de acciones masivas -->
+      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;
+                  padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;
+                  gap:10px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;
+                      font-size:13px;font-weight:600;white-space:nowrap">
+          <input type="checkbox" id="chk-todos" style="width:15px;height:15px"
+                 onchange="seleccionarTodos(this.checked)">
+          Sel. todos
+        </label>
+        <span style="color:var(--border)">|</span>
+        <span style="font-size:12px;color:var(--muted)" id="lbl-seleccionados">0 seleccionados</span>
+        <span style="color:var(--border)">|</span>
+        <button class="btn btn-sm" id="btn-activar-sel"
+                style="background:#16a34a;color:white;border:none;opacity:.4"
+                disabled onclick="accionMasiva('activar')">
+          ✅ Incluir en consultas
+        </button>
+        <button class="btn btn-sm" id="btn-desactivar-sel"
+                style="background:#d97706;color:white;border:none;opacity:.4"
+                disabled onclick="accionMasiva('desactivar')">
+          ⏸ Excluir de consultas
+        </button>
+        <button class="btn btn-danger btn-sm" id="btn-eliminar-sel"
+                style="opacity:.4" disabled onclick="accionMasiva('eliminar')">
+          🗑 Eliminar
+        </button>
+      </div>
+
       <!-- Tabla dispositivos -->
-      <div style="overflow-x:auto;max-height:400px;overflow-y:auto">
+      <div style="overflow-x:auto;max-height:420px;overflow-y:auto">
         <table>
           <thead>
             <tr>
+              <th style="width:36px"></th>
               <th>ID Dispositivo</th>
               <th>Nombre / Descripción</th>
-              <th>Estado</th>
+              <th>Consultas</th>
               <th>Agregado</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody id="tbody-dispositivos">
             {% for d in dispositivos %}
-            <tr id="row-{{ d.device_id }}">
+            <tr id="row-{{ d.device_id }}" data-id="{{ d.device_id }}" data-activo="{{ d.activo }}">
+              <td>
+                <input type="checkbox" class="chk-dev" value="{{ d.device_id }}"
+                       style="width:15px;height:15px;cursor:pointer" onchange="actualizarSeleccion()">
+              </td>
               <td style="font-family:monospace;font-weight:700">{{ d.device_id }}</td>
               <td style="color:var(--muted)">{{ d.nombre or '—' }}</td>
               <td>
-                <span class="badge {{ 'badge-activo' if d.activo else 'badge-inactivo' }}">
-                  {{ '✅ Activo' if d.activo else '⛔ Inactivo' }}
+                <span class="badge {{ 'badge-activo' if d.activo else 'badge-inactivo' }}"
+                      id="badge-{{ d.device_id }}">
+                  {{ '✅ Incluido' if d.activo else '⏸ Excluido' }}
                 </span>
               </td>
               <td style="font-size:12px;color:var(--muted)">
                 {{ d.agregado_en[:10] if d.agregado_en else '—' }}
               </td>
               <td>
-                <button class="btn btn-danger btn-sm"
-                        onclick="eliminarDispositivo('{{ d.device_id }}')">🗑</button>
+                <div style="display:flex;gap:5px">
+                  <button class="btn btn-sm"
+                          style="background:{{ '#f59e0b' if d.activo else '#16a34a' }};color:white;border:none"
+                          onclick="toggleDispositivo('{{ d.device_id }}', {{ 0 if d.activo else 1 }}, this)"
+                          title="{{ 'Excluir de consultas' if d.activo else 'Incluir en consultas' }}">
+                    {{ '⏸' if d.activo else '▶️' }}
+                  </button>
+                  <button class="btn btn-danger btn-sm"
+                          onclick="eliminarDispositivo('{{ d.device_id }}')">🗑</button>
+                </div>
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">
+            <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">
               Sin dispositivos. Carga un CSV o agrega manualmente.
             </td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+      <div style="font-size:12px;color:var(--muted);margin-top:8px" id="dev-footer"></div>
     </div>
   </div>
 
@@ -621,7 +666,10 @@ document.getElementById('modal-editar').addEventListener('click', function(e) {
 });
 
 // ── Email config ──────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', cargarEmailConfig);
+document.addEventListener('DOMContentLoaded', () => {
+  cargarEmailConfig();
+  actualizarSeleccion();
+});
 
 async function cargarEmailConfig() {
   try {
@@ -710,7 +758,113 @@ async function guardarEmail() {
   } catch(e) { toast('❌ Error al guardar', false); }
 }
 
-// ── Dispositivos ──────────────────────────────────────────────────────────────
+// ── Dispositivos — selección masiva ──────────────────────────────────────────
+function seleccionarTodos(checked) {
+  document.querySelectorAll('.chk-dev').forEach(c => c.checked = checked);
+  actualizarSeleccion();
+}
+
+function actualizarSeleccion() {
+  const checks = [...document.querySelectorAll('.chk-dev')];
+  const sel = checks.filter(c => c.checked);
+  const n = sel.length;
+  document.getElementById('lbl-seleccionados').textContent = `${n} seleccionado${n !== 1 ? 's' : ''}`;
+  ['btn-activar-sel','btn-desactivar-sel','btn-eliminar-sel'].forEach(id => {
+    const btn = document.getElementById(id);
+    btn.disabled = n === 0;
+    btn.style.opacity = n > 0 ? '1' : '.4';
+  });
+  // Indeterminate en "todos"
+  const chkTodos = document.getElementById('chk-todos');
+  chkTodos.indeterminate = n > 0 && n < checks.length;
+  chkTodos.checked = n === checks.length && checks.length > 0;
+  // Footer
+  const total = checks.length;
+  const activos = [...document.querySelectorAll('#tbody-dispositivos tr[data-activo="1"]')].length;
+  document.getElementById('dev-footer').textContent =
+    `${activos} incluidos en consultas · ${total - activos} excluidos · ${total} total`;
+}
+
+function getSeleccionados() {
+  return [...document.querySelectorAll('.chk-dev:checked')].map(c => c.value);
+}
+
+async function accionMasiva(accion) {
+  const ids = getSeleccionados();
+  if (!ids.length) return;
+  if (accion === 'eliminar') {
+    if (!confirm(`¿Eliminar ${ids.length} dispositivo(s)?`)) return;
+  }
+  const promesas = ids.map(id => {
+    if (accion === 'eliminar') {
+      return fetch(`/admin/dispositivos/eliminar/${id}`, { method: 'POST' }).then(r => r.json());
+    } else {
+      const activo = accion === 'activar' ? 1 : 0;
+      return fetch(`/admin/dispositivos/toggle/${id}`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ activo })
+      }).then(r => r.json());
+    }
+  });
+  const resultados = await Promise.all(promesas);
+  const ok = resultados.filter(r => r.ok).length;
+
+  if (accion === 'eliminar') {
+    ids.forEach(id => document.getElementById('row-' + id)?.remove());
+    toast(`🗑 ${ok} dispositivo(s) eliminado(s)`);
+  } else {
+    const nuevoActivo = accion === 'activar' ? 1 : 0;
+    ids.forEach(id => {
+      const row = document.getElementById('row-' + id);
+      if (!row) return;
+      row.dataset.activo = nuevoActivo;
+      const badge = document.getElementById('badge-' + id);
+      if (badge) {
+        badge.className = `badge ${nuevoActivo ? 'badge-activo' : 'badge-inactivo'}`;
+        badge.textContent = nuevoActivo ? '✅ Incluido' : '⏸ Excluido';
+      }
+      const togBtn = row.querySelector('button:first-child');
+      if (togBtn) {
+        togBtn.style.background = nuevoActivo ? '#f59e0b' : '#16a34a';
+        togBtn.textContent = nuevoActivo ? '⏸' : '▶️';
+        togBtn.title = nuevoActivo ? 'Excluir de consultas' : 'Incluir en consultas';
+        togBtn.setAttribute('onclick', `toggleDispositivo('${id}', ${nuevoActivo ? 0 : 1}, this)`);
+      }
+    });
+    toast(`${accion === 'activar' ? '✅ Incluidos' : '⏸ Excluidos'}: ${ok} dispositivo(s)`);
+  }
+  // Deseleccionar todo
+  document.querySelectorAll('.chk-dev').forEach(c => c.checked = false);
+  document.getElementById('chk-todos').checked = false;
+  actualizarSeleccion();
+}
+
+async function toggleDispositivo(id, nuevoActivo, btn) {
+  try {
+    const res  = await fetch(`/admin/dispositivos/toggle/${id}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ activo: nuevoActivo })
+    });
+    const json = await res.json();
+    if (json.ok) {
+      const row = document.getElementById('row-' + id);
+      if (row) row.dataset.activo = nuevoActivo;
+      const badge = document.getElementById('badge-' + id);
+      if (badge) {
+        badge.className = `badge ${nuevoActivo ? 'badge-activo' : 'badge-inactivo'}`;
+        badge.textContent = nuevoActivo ? '✅ Incluido' : '⏸ Excluido';
+      }
+      btn.style.background = nuevoActivo ? '#f59e0b' : '#16a34a';
+      btn.textContent = nuevoActivo ? '⏸' : '▶️';
+      btn.title = nuevoActivo ? 'Excluir de consultas' : 'Incluir en consultas';
+      btn.setAttribute('onclick', `toggleDispositivo('${id}', ${nuevoActivo ? 0 : 1}, this)`);
+      actualizarSeleccion();
+      toast(nuevoActivo ? `✅ ${id} incluido en consultas` : `⏸ ${id} excluido de consultas`);
+    }
+  } catch(e) { toast('❌ Error', false); }
+}
+
+// ── Dispositivos — operaciones básicas ───────────────────────────────────────
 async function limpiarCache() {
   const btn = document.getElementById('btn-clear-cache');
   btn.disabled = true; btn.textContent = '⏳ Limpiando...';
@@ -757,22 +911,29 @@ async function agregarDispositivo() {
   if (json.ok) {
     input.value = '';
     toast('✅ Dispositivo agregado');
-    // Agregar fila sin recargar
     const tbody = document.getElementById('tbody-dispositivos');
     const hoy   = new Date().toISOString().slice(0,10);
-    // quita fila vacía si existe
     const empty = tbody.querySelector('td[colspan]');
     if (empty) empty.closest('tr').remove();
     tbody.insertAdjacentHTML('afterbegin', `
-      <tr id="row-${id}">
+      <tr id="row-${id}" data-id="${id}" data-activo="1">
+        <td><input type="checkbox" class="chk-dev" value="${id}"
+                   style="width:15px;height:15px;cursor:pointer" onchange="actualizarSeleccion()"></td>
         <td style="font-family:monospace;font-weight:700">${id}</td>
         <td style="color:var(--muted)">—</td>
-        <td><span class="badge badge-activo">✅ Activo</span></td>
+        <td><span class="badge badge-activo" id="badge-${id}">✅ Incluido</span></td>
         <td style="font-size:12px;color:var(--muted)">${hoy}</td>
-        <td><button class="btn btn-danger btn-sm" onclick="eliminarDispositivo('${id}')">🗑</button></td>
+        <td>
+          <div style="display:flex;gap:5px">
+            <button class="btn btn-sm" style="background:#f59e0b;color:white;border:none"
+                    onclick="toggleDispositivo('${id}', 0, this)" title="Excluir de consultas">⏸</button>
+            <button class="btn btn-danger btn-sm" onclick="eliminarDispositivo('${id}')">🗑</button>
+          </div>
+        </td>
       </tr>`);
     const cnt = document.getElementById('cnt-devs');
     cnt.textContent = +cnt.textContent + 1;
+    actualizarSeleccion();
   } else {
     toast('❌ ' + (json.msg || json.error), false);
   }
