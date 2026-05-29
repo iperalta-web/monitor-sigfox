@@ -275,6 +275,13 @@
   </div>
 </div>
 
+<!-- Banner actualizando -->
+<div id="banner-actualizando" style="display:none;background:#1e40af;color:white;
+     text-align:center;padding:8px;font-size:13px;font-weight:600">
+  ⏳ Actualizando datos desde Sigfox en segundo plano...
+  <span style="opacity:.7;font-weight:400"> Los datos mostrados son del último registro guardado.</span>
+</div>
+
 <!-- Layout -->
 <div class="layout">
 
@@ -529,7 +536,15 @@ async function cargarDatos(force = false) {
     if (!json.ok) throw new Error(json.error || 'Error desconocido');
     datos = json.datos;
     renderDashboard();
-    toast('✅ Datos actualizados');
+    if (json.actualizando) {
+      mostrarBannerActualizando(true);
+      // Reintentar en 30s para obtener datos frescos
+      setTimeout(() => cargarDatos(true), 30000);
+      toast('⚡ Mostrando datos recientes — actualizando en background...');
+    } else {
+      mostrarBannerActualizando(false);
+      toast(json.desde_cache ? '⚡ Datos desde caché' : '✅ Datos actualizados');
+    }
   } catch (e) {
     toast('❌ Error: ' + e.message, true);
     console.error(e);
@@ -882,6 +897,9 @@ function estadoClass(e) {
 }
 function mostrarLoader(show) {
   document.getElementById('loader').style.display = show ? 'flex' : 'none';
+}
+function mostrarBannerActualizando(show) {
+  document.getElementById('banner-actualizando').style.display = show ? 'block' : 'none';
 }
 let toastTimer;
 function toast(msg, error = false) {

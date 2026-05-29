@@ -40,16 +40,54 @@ app.secret_key = os.environ.get("SECRET_KEY", "sigfox-monitor-secret-2024-iotnet
 # Inicializar DB siempre al arrancar (con o sin gunicorn)
 init_db()
 
-# ── Cache en memoria (5 min) ──────────────────────────────────────────────────
-_cache = {}
-CACHE_TTL = 300
+# ── Cache en memoria + disco ──────────────────────────────────────────────────
+_cache   = {}
+CACHE_TTL = 300  # 5 min en memoria
+DATA_DIR  = os.path.join(SCRIPT_DIR, "data")
+
+def _cache_file(key):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    return os.path.join(DATA_DIR, f"cache_{key}.json")
 
 def cache_get(key):
+    # 1. Memoria (más rápido)
     e = _cache.get(key)
-    return e["data"] if e and (time.time() - e["ts"]) < CACHE_TTL else None
+    if e and (time.time() - e["ts"]) < CACHE_TTL:
+        return e["data"]
+    # 2. Disco (persiste entre reinicios)
+    try:
+        path = _cache_file(key)
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                stored = json.load(f)
+            _cache[key] = {"ts": stored["ts"], "data": stored["data"]}
+            return stored["data"]
+    except Exception:
+        pass
+    return None
 
 def cache_set(key, data):
-    _cache[key] = {"ts": time.time(), "data": data}
+    ts = time.time()
+    _cache[key] = {"ts": ts, "data": data}
+    try:
+        with open(_cache_file(key), "w") as f:
+            json.dump({"ts": ts, "data": data}, f)
+    except Exception:
+        pass
+
+def cache_get_stale(key):
+    """Devuelve datos aunque estén viejos (para mostrar mientras refresca)."""
+    e = _cache.get(key)
+    if e:
+        return e["data"]
+    try:
+        path = _cache_file(key)
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return json.load(f)["data"]
+    except Exception:
+        pass
+    return None
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 def login_required(f):
@@ -225,16 +263,57 @@ def index():
         logo_empresa=get_config("logo_empresa", "IotNet"))
 
 
+_refreshing = set()  # evita consultas paralelas
+
+def _refresh_background(year, month):
+    key = f"{year}_{month}"
+    if key in _refreshing:
+        return
+    _refreshing.add(key)
+    try:
+        obtener_datos(year, month, force=True)
+    except Exception as e:
+        print(f"  [BG] Error al refrescar {key}: {e}")
+    finally:
+        _refreshing.discard(key)
+
+
 @app.route("/api/datos")
 @login_required
 def api_datos():
-    hoy = date.today()
+    import threading
+    hoy   = date.today()
     year  = request.args.get("year",  str(hoy.year))
     month = request.args.get("month", str(hoy.month))
     force = request.args.get("force", "false") == "true"
+    key   = f"{year}_{month}"
+
+    if force:
+        # Forzado: espera la respuesta fresca
+        try:
+            datos = obtener_datos(year, month, force=True)
+            return jsonify({"ok": True, "datos": datos, "desde_cache": False})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    # Modo normal: devuelve cache al instante
+    stale = cache_get_stale(key)
+    fresh = cache_get(key)  # None si venció
+
+    if fresh:
+        # Cache vigente — devuelve inmediatamente
+        return jsonify({"ok": True, "datos": fresh, "desde_cache": True})
+
+    if stale:
+        # Cache vencida — devuelve los viejos y refresca en background
+        threading.Thread(target=_refresh_background, args=(year, month), daemon=True).start()
+        stale["actualizando"] = True
+        return jsonify({"ok": True, "datos": stale, "desde_cache": True, "actualizando": True})
+
+    # Sin cache — consulta normal (primera vez)
     try:
-        datos = obtener_datos(year, month, force=force)
-        return jsonify({"ok": True, "datos": datos})
+        datos = obtener_datos(year, month, force=False)
+        return jsonify({"ok": True, "datos": datos, "desde_cache": False})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
