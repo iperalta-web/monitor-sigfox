@@ -220,14 +220,36 @@ def guardar_config_json(cfg):
 def consultar_consumo_api(login, password, device_id, year, month):
     url = f"https://api.sigfox.com/v2/devices/{device_id}/consumption/{year}/{month}"
     try:
-        r = requests.get(url, auth=HTTPBasicAuth(login, password), timeout=15)
+        r = requests.get(url, auth=HTTPBasicAuth(login, password), timeout=8)
         if r.status_code == 200:
             return r.json().get("consumption", {}).get("consumptions", [])
     except Exception as e:
         print(f"  [ERR] {device_id}: {e}")
     return None
 
+def _consultar_device(args):
+    """Consulta un dispositivo — ejecutable en ThreadPool."""
+    login, password, device_id, year, month, dias_mes = args
+    try:
+        consumptions = consultar_consumo_api(login, password, device_id, year, month)
+        if consumptions is None:
+            return None
+        diarios = []
+        for d in range(dias_mes):
+            try:
+                v = consumptions[d]["frameCount"] if d < len(consumptions) else None
+            except (IndexError, KeyError, TypeError):
+                v = None
+            diarios.append(v)
+        return {"id": str(device_id), "diarios": diarios,
+                "total": sum(v for v in diarios if v is not None)}
+    except Exception as e:
+        print(f"  [ERR] Dispositivo {device_id}: {e}")
+        return None
+
+
 def obtener_datos(year, month, force=False):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     cache_key = f"{year}_{month}"
     if not force:
         cached = cache_get(cache_key)
@@ -241,25 +263,15 @@ def obtener_datos(year, month, force=False):
     hoy = date.today()
     dia_corte = hoy.day if (int(year) == hoy.year and int(month) == hoy.month) else dias_mes
 
+    # Consultar todos los dispositivos en paralelo (máx 10 hilos)
+    login   = cfg["sigfox"]["login"]
+    password = cfg["sigfox"]["password"]
+    args_list = [(login, password, dev, year, month, dias_mes) for dev in ids]
     registros = []
-    for device_id in ids:
-        try:
-            consumptions = consultar_consumo_api(
-                cfg["sigfox"]["login"], cfg["sigfox"]["password"], device_id, year, month)
-            if consumptions is None:
-                continue
-            diarios = []
-            for d in range(dias_mes):
-                try:
-                    v = consumptions[d]["frameCount"] if d < len(consumptions) else None
-                except (IndexError, KeyError, TypeError):
-                    v = None
-                diarios.append(v)
-            registros.append({"id": str(device_id), "diarios": diarios,
-                               "total": sum(v for v in diarios if v is not None)})
-        except Exception as e:
-            print(f"  [ERR] Dispositivo {device_id}: {e}")
-            continue
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        for resultado in executor.map(_consultar_device, args_list):
+            if resultado is not None:
+                registros.append(resultado)
 
     limite_global = cfg["limites"]["global_mensual"]
     limite_diario = cfg["limites"]["diario_default"]
@@ -445,12 +457,24 @@ def api_datos():
         stale["actualizando"] = True
         return jsonify({"ok": True, "datos": stale, "desde_cache": True, "actualizando": True})
 
-    # Sin cache — consulta normal (primera vez)
-    try:
-        datos = obtener_datos(year, month, force=False)
-        return jsonify({"ok": True, "datos": datos, "desde_cache": False})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    # Sin cache — inicia fetch en background y responde inmediatamente
+    threading.Thread(target=_refresh_background, args=(year, month), daemon=True).start()
+    placeholder = {
+        "year": year, "month": month,
+        "mes_nombre": calendar.month_name[int(month)],
+        "dia_corte": date.today().day,
+        "dias_mes": calendar.monthrange(int(year), int(month))[1],
+        "total_global": 0, "limite_global": 5000000,
+        "pct_global": 0, "pct_ritmo": 0, "proyeccion": 0,
+        "dias_restantes": 0, "ritmo_necesario": 0, "disponibles": 5000000,
+        "estado_global": "OK", "umbral_adv": 75, "umbral_crit": 90,
+        "dispositivos": [], "serie_global": [],
+        "num_dispositivos": 0, "num_criticos": 0,
+        "num_advertencias": 0, "num_ok": 0,
+        "actualizado": "Cargando...", "actualizando": True,
+    }
+    return jsonify({"ok": True, "datos": placeholder,
+                    "desde_cache": False, "actualizando": True})
 
 
 @app.route("/api/config", methods=["GET"])
