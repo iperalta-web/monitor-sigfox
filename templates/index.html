@@ -607,11 +607,15 @@ function renderKPIs() {
   sub.style.color = delta > 0 ? 'var(--crit)' : 'var(--ok)';
   document.getElementById('kpi-ritmo').textContent    = fmt(d.ritmo_necesario) + '/día';
   document.getElementById('kpi-pct-ritmo').textContent = d.pct_ritmo + '%';
-  document.getElementById('kpi-devs').textContent      = d.num_dispositivos;
+  const transmitiendo = d.dispositivos.filter(x => x.total > 0).length;
+  document.getElementById('kpi-devs').textContent      = transmitiendo;
   document.getElementById('kpi-devs-sub').innerHTML   =
     `<span style="color:var(--crit)">🔴 ${d.num_criticos}</span> &nbsp;` +
     `<span style="color:var(--adv)">🟡 ${d.num_advertencias}</span> &nbsp;` +
-    `<span style="color:var(--ok)">🟢 ${d.num_ok}</span>`;
+    `<span style="color:var(--ok)">🟢 ${d.num_ok}</span>` +
+    (d.num_dispositivos - transmitiendo > 0
+      ? `<br><span style="color:var(--muted);font-size:11px">${d.num_dispositivos - transmitiendo} sin mensajes</span>`
+      : '');
   document.getElementById('cnt-crit').textContent = d.num_criticos;
   document.getElementById('cnt-adv').textContent  = d.num_advertencias;
   document.getElementById('cnt-ok').textContent   = d.num_ok;
@@ -714,7 +718,10 @@ function renderCharts() {
 function renderTabla() {
   if (!datos) return;
   const search = document.getElementById('search-box').value.toLowerCase();
-  let devs = [...datos.dispositivos];
+  // Solo dispositivos que hayan transmitido al menos 1 mensaje
+  let devs = datos.dispositivos.filter(d => d.total > 0);
+  const totalRegistrados = datos.dispositivos.length;
+  const totalTransmitiendo = devs.length;
 
   // Filtros estado
   devs = devs.filter(d => {
@@ -757,8 +764,10 @@ function renderTabla() {
     </tr>`;
   }).join('');
 
-  document.getElementById('tabla-footer').textContent =
-    `Mostrando ${devs.length} de ${datos.dispositivos.length} dispositivos`;
+  const sinMensajes = totalRegistrados - totalTransmitiendo;
+  document.getElementById('tabla-footer').innerHTML =
+    `Mostrando ${devs.length} de ${totalTransmitiendo} transmitiendo` +
+    (sinMensajes > 0 ? ` &nbsp;·&nbsp; <span style="color:var(--muted)">${sinMensajes} sin mensajes este mes (ocultos)</span>` : '');
 }
 
 function filtrarTabla() { renderTabla(); }
