@@ -267,6 +267,7 @@
     {% if usuario and usuario.rol == 'admin' %}
     <a href="/admin" class="btn btn-outline">👥 Usuarios</a>
     {% endif %}
+    <button class="btn btn-outline" onclick="descargarCSV()" id="btn-csv" title="Descargar reporte CSV">⬇️ CSV</button>
     <button class="btn btn-outline" onclick="openConfig()">⚙️ Config</button>
     <button class="btn btn-primary" id="btn-refresh" onclick="refrescar()">🔄 Actualizar</button>
     <span style="font-size:13px;color:#94a3b8">{{ usuario.username if usuario else '' }}</span>
@@ -846,6 +847,24 @@ async function guardarEmail() {
       toast('✅ Email guardado');
     }
   } catch(e) { toast('❌ Error', true); }
+}
+
+// ── Descarga CSV ─────────────────────────────────────────────────────────────
+function descargarCSV() {
+  if (!datos) { toast('⚠️ Primero consulta los datos', true); return; }
+  const year  = document.getElementById('sel-year').value;
+  const month = document.getElementById('sel-month').value;
+  const btn = document.getElementById('btn-csv');
+  btn.disabled = true;
+  btn.textContent = '⏳ Generando...';
+  const a = document.createElement('a');
+  a.href = `/api/reporte-csv?year=${year}&month=${month}`;
+  a.download = `reporte_sigfox_${year}_${String(month).padStart(2,'0')}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => { btn.disabled = false; btn.textContent = '⬇️ CSV'; }, 1500);
+  toast('✅ Descargando reporte CSV...');
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -5,18 +5,26 @@ Monitor Sigfox — Web App con autenticación
 Ejecutar:  python3 app.py
 """
 
+import csv
+import io
 import json
 import os
 import calendar
+import smtplib
 import time
 from datetime import date, datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 from functools import wraps
 
 import pandas as pd
 import requests
 from flask import (Flask, jsonify, render_template, request,
-                   redirect, url_for, session, flash)
+                   redirect, url_for, session, flash, Response)
 from requests.auth import HTTPBasicAuth
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import (init_db, verificar_usuario, get_usuario, get_config,
                       set_config, actualizar_ultimo_login, listar_usuarios,
@@ -347,6 +355,190 @@ def admin_config():
     set_config("logo_empresa", request.form.get("logo_empresa", "IotNet"))
     set_config("max_usuarios", request.form.get("max_usuarios", "10"))
     return redirect(url_for("admin_panel", msg="Configuración guardada", tipo="ok"))
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REPORTE CSV
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generar_csv(datos):
+    """Genera el contenido CSV del reporte de consumos."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Encabezado resumen global
+    writer.writerow(["REPORTE DE CONSUMOS SIGFOX"])
+    writer.writerow([f"Período: {datos['mes_nombre']} {datos['year']}"])
+    writer.writerow([f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"])
+    writer.writerow([])
+
+    # Resumen global
+    writer.writerow(["RESUMEN GLOBAL"])
+    writer.writerow(["Total mensajes consumidos", datos["total_global"]])
+    writer.writerow(["Límite mensual del pool",   datos["limite_global"]])
+    writer.writerow(["% del pool consumido",      f"{datos['pct_global']}%"])
+    writer.writerow(["Proyección fin de mes",      datos["proyeccion"]])
+    writer.writerow(["Mensajes disponibles",       datos["disponibles"]])
+    writer.writerow(["Estado global",              datos["estado_global"]])
+    writer.writerow([])
+
+    # Detalle por dispositivo
+    writer.writerow(["DETALLE POR DISPOSITIVO"])
+    writer.writerow(["ID Dispositivo", "Mensajes acumulados", "Límite mensual",
+                     "% del límite", "Promedio/día", "Límite/día",
+                     "Días con datos", "Estado"])
+    for d in datos["dispositivos"]:
+        writer.writerow([
+            d["id"], d["total"], d["limite_mes"],
+            f"{d['pct']}%", d["promedio_dia"],
+            d["limite_dia"], d["dias_datos"], d["estado"]
+        ])
+
+    # Serie diaria global
+    writer.writerow([])
+    writer.writerow(["CONSUMO DIARIO GLOBAL (todos los dispositivos)"])
+    writer.writerow(["Día"] + [str(i+1) for i in range(datos["dias_mes"])])
+    writer.writerow(["Mensajes"] + [
+        int(v) if v else 0 for v in datos["serie_global"][:datos["dias_mes"]]
+    ])
+
+    return output.getvalue()
+
+
+@app.route("/api/reporte-csv")
+@login_required
+def api_reporte_csv():
+    hoy   = date.today()
+    year  = request.args.get("year",  str(hoy.year))
+    month = request.args.get("month", str(hoy.month))
+    try:
+        datos = obtener_datos(year, month)
+        csv_content = generar_csv(datos)
+        filename = f"reporte_sigfox_{year}_{int(month):02d}.csv"
+        return Response(
+            csv_content,
+            mimetype="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EMAIL SEMANAL (cada viernes automático)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _smtp_conectar(ecfg):
+    if ecfg.get("usar_tls", True):
+        server = smtplib.SMTP(ecfg["smtp_host"], ecfg["smtp_port"])
+        server.starttls()
+    else:
+        server = smtplib.SMTP_SSL(ecfg["smtp_host"], ecfg["smtp_port"])
+    server.login(ecfg["usuario"], ecfg["password"])
+    return server
+
+
+def enviar_reporte_semanal():
+    """Se ejecuta automáticamente cada viernes. Envía resumen + CSV adjunto."""
+    try:
+        cfg  = cargar_config()
+        ecfg = cfg["alertas"]["email"]
+        if not ecfg.get("habilitado", False):
+            return
+
+        hoy   = date.today()
+        year  = str(hoy.year)
+        month = str(hoy.month)
+        datos = obtener_datos(year, month, force=True)
+        csv_content = generar_csv(datos)
+
+        limite_global = datos["limite_global"]
+        pct    = datos["pct_global"]
+        estado = datos["estado_global"]
+        color  = {"OK": "#27ae60", "ADVERTENCIA": "#f39c12", "CRITICO": "#dc2626"}.get(estado, "#333")
+        icono  = {"OK": "✅", "ADVERTENCIA": "⚠️", "CRITICO": "🚨"}.get(estado, "")
+
+        html = f"""
+        <html><body style="font-family:Arial,sans-serif;max-width:700px">
+          <h2 style="color:#1d4ed8">📡 Reporte Semanal de Mensajes Sigfox</h2>
+          <p style="color:#64748b">{hoy.strftime('%A %d de %B de %Y')}</p>
+
+          <div style="background:#f8f9fa;border-radius:12px;padding:20px;
+                      border-left:5px solid {color};margin:20px 0">
+            <div style="font-size:42px;font-weight:900;color:{color}">{pct}%</div>
+            <div style="font-weight:700;color:{color}">{icono} {estado}</div>
+            <div style="color:#64748b;margin-top:4px">del pool mensual consumido</div>
+          </div>
+
+          <table style="width:100%;border-collapse:collapse;font-size:14px">
+            <tr style="background:#f1f5f9">
+              <td style="padding:10px;font-weight:600">Mensajes consumidos</td>
+              <td style="padding:10px;text-align:right;font-weight:800">{datos['total_global']:,}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px">Límite mensual</td>
+              <td style="padding:10px;text-align:right">{limite_global:,}</td>
+            </tr>
+            <tr style="background:#f1f5f9">
+              <td style="padding:10px">Proyección fin de mes</td>
+              <td style="padding:10px;text-align:right">{datos['proyeccion']:,}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px">Disponibles</td>
+              <td style="padding:10px;text-align:right;color:#27ae60;font-weight:700">
+                {datos['disponibles']:,}
+              </td>
+            </tr>
+            <tr style="background:#f1f5f9">
+              <td style="padding:10px">Dispositivos 🔴 Crítico</td>
+              <td style="padding:10px;text-align:right;color:#dc2626">{datos['num_criticos']}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px">Dispositivos 🟡 Advertencia</td>
+              <td style="padding:10px;text-align:right;color:#d97706">{datos['num_advertencias']}</td>
+            </tr>
+          </table>
+
+          <p style="color:#94a3b8;font-size:11px;margin-top:24px">
+            Reporte generado automáticamente cada viernes — Monitor Sigfox IotNet<br>
+            Se adjunta el detalle completo en CSV.
+          </p>
+        </body></html>"""
+
+        msg = MIMEMultipart("mixed")
+        msg["Subject"] = f"📊 Reporte Semanal Sigfox — {pct}% del pool — {datos['mes_nombre']} {year}"
+        msg["From"]    = ecfg["remitente"]
+        msg["To"]      = ", ".join(ecfg["destinatarios"])
+        msg.attach(MIMEText(html, "html", "utf-8"))
+
+        # Adjuntar CSV
+        adjunto = MIMEBase("application", "octet-stream")
+        adjunto.set_payload(csv_content.encode("utf-8"))
+        encoders.encode_base64(adjunto)
+        adjunto.add_header("Content-Disposition",
+                           f"attachment; filename=reporte_sigfox_{year}_{int(month):02d}.csv")
+        msg.attach(adjunto)
+
+        server = _smtp_conectar(ecfg)
+        server.sendmail(ecfg["remitente"], ecfg["destinatarios"], msg.as_string())
+        server.quit()
+        print(f"  [Scheduler] Reporte semanal enviado a {ecfg['destinatarios']}")
+
+    except Exception as e:
+        print(f"  [Scheduler] Error al enviar reporte semanal: {e}")
+
+
+# ── Iniciar scheduler ─────────────────────────────────────────────────────────
+scheduler = BackgroundScheduler(timezone="America/Mexico_City")
+scheduler.add_job(
+    enviar_reporte_semanal,
+    trigger="cron",
+    day_of_week="fri",       # cada viernes
+    hour=8,
+    minute=0,
+    id="reporte_semanal",
+    replace_existing=True,
+)
+scheduler.start()
 
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
