@@ -78,6 +78,16 @@ def cache_set(key, data):
     except Exception:
         pass
 
+def cache_clear_all():
+    """Limpia caché en memoria y en disco."""
+    import glob
+    _cache.clear()
+    try:
+        for f in glob.glob(os.path.join(DATA_DIR, "cache_*.json")):
+            os.remove(f)
+    except Exception:
+        pass
+
 def cache_get_stale(key):
     """Devuelve datos aunque estén viejos (para mostrar mientras refresca)."""
     e = _cache.get(key)
@@ -397,7 +407,7 @@ def api_config_post():
         # Reprogramar scheduler si cambió día/hora
         if "reporte_dia" in body or "reporte_hora" in body:
             _reprogramar_scheduler(cfg)
-        _cache.clear()
+        cache_clear_all()
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -478,7 +488,7 @@ def admin_upload_csv():
         texto = f.read().decode("utf-8", errors="ignore")
         reemplazar = request.form.get("reemplazar", "false") == "true"
         ins, dup, err = importar_dispositivos_csv(texto, reemplazar=reemplazar)
-        _cache.clear()
+        cache_clear_all()
         return jsonify({"ok": True, "insertados": ins, "duplicados": dup, "errores": err})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -495,7 +505,7 @@ def admin_agregar_dispositivo():
             return jsonify({"ok": False, "error": "ID requerido"}), 400
         ok, msg = agregar_dispositivo(device_id, nombre)
         if ok:
-            _cache.clear()
+            cache_clear_all()
         return jsonify({"ok": ok, "msg": msg})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -506,7 +516,7 @@ def admin_agregar_dispositivo():
 def admin_eliminar_dispositivo(device_id):
     try:
         eliminar_dispositivo(device_id)
-        _cache.clear()
+        cache_clear_all()
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -519,10 +529,24 @@ def admin_toggle_dispositivo(device_id):
         body   = request.get_json()
         activo = int(body.get("activo", 1))
         toggle_dispositivo(device_id, activo)
-        _cache.clear()
+        cache_clear_all()
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/clear-cache", methods=["POST"])
+@admin_required
+def api_clear_cache():
+    """Limpia la caché en memoria y en disco."""
+    _cache.clear()
+    try:
+        import glob
+        for f in glob.glob(os.path.join(DATA_DIR, "cache_*.json")):
+            os.remove(f)
+    except Exception:
+        pass
+    return jsonify({"ok": True})
 
 
 @app.route("/admin/crear-usuario", methods=["POST"])

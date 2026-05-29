@@ -375,6 +375,11 @@
         <button class="btn btn-primary btn-sm" onclick="document.getElementById('upload-area').style.display='block'">
           ⬆️ Cargar CSV
         </button>
+        <button class="btn btn-sm" id="btn-clear-cache"
+                style="background:#f59e0b;color:white;border:none"
+                onclick="limpiarCache()">
+          🔄 Actualizar datos
+        </button>
       </div>
     </div>
     <div class="card-body">
@@ -706,6 +711,18 @@ async function guardarEmail() {
 }
 
 // ── Dispositivos ──────────────────────────────────────────────────────────────
+async function limpiarCache() {
+  const btn = document.getElementById('btn-clear-cache');
+  btn.disabled = true; btn.textContent = '⏳ Limpiando...';
+  try {
+    const res  = await fetch('/api/clear-cache', { method: 'POST' });
+    const json = await res.json();
+    if (json.ok) toast('✅ Caché limpiada — el dashboard recargará datos frescos');
+    else         toast('❌ Error: ' + json.error, false);
+  } catch(e) { toast('❌ Error al limpiar caché', false); }
+  btn.disabled = false; btn.textContent = '🔄 Actualizar datos';
+}
+
 async function subirCSV() {
   const file = document.getElementById('csv-file').files[0];
   if (!file) { toast('⚠️ Selecciona un archivo CSV', false); return; }
