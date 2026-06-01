@@ -822,6 +822,15 @@ def api_reporte_csv():
 # EMAIL SEMANAL (cada viernes automático)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _resolver_ipv4(host):
+    """Resuelve el hostname a una IP IPv4 para evitar problemas en Render free tier."""
+    import socket
+    resultados = socket.getaddrinfo(host, None, socket.AF_INET)  # AF_INET = solo IPv4
+    if not resultados:
+        raise OSError(f"No se encontró dirección IPv4 para {host}")
+    return resultados[0][4][0]  # primera IP IPv4
+
+
 def _smtp_conectar(ecfg):
     host  = ecfg.get("smtp_host", "smtp.gmail.com")
     port  = int(ecfg.get("smtp_port", 587))
@@ -829,13 +838,19 @@ def _smtp_conectar(ecfg):
     pw    = ecfg.get("password", "")
     if not host or not user or not pw:
         raise ValueError("Configuración SMTP incompleta (host/usuario/password)")
+    # Forzar IPv4 (Render free tier no soporta IPv6 saliente)
+    try:
+        ip4 = _resolver_ipv4(host)
+        print(f"  [SMTP] Conectando a {host} → {ip4}:{port}")
+    except Exception:
+        ip4 = host  # fallback al hostname original
     if ecfg.get("usar_tls", True):
-        server = smtplib.SMTP(host, port, timeout=15)
-        server.ehlo()
+        server = smtplib.SMTP(ip4, port, timeout=20)
+        server.ehlo(host)
         server.starttls()
-        server.ehlo()
+        server.ehlo(host)
     else:
-        server = smtplib.SMTP_SSL(host, port, timeout=15)
+        server = smtplib.SMTP_SSL(ip4, port, timeout=20)
     server.login(user, pw)
     return server
 
