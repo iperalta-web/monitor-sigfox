@@ -675,13 +675,15 @@ async function cargarEmailConfig() {
   try {
     const res = await fetch('/api/config');
     const cfg = await res.json();
-    const e   = cfg.alertas.email;
-    const ec  = cfg.email_config || {};
+    const e   = cfg.alertas.email || {};
+    const ec  = cfg.email_config  || {};
 
-    document.getElementById('smtp-host').value      = ec.smtp_host    || 'smtp.gmail.com';
-    document.getElementById('smtp-port').value      = ec.smtp_port    || 587;
-    document.getElementById('smtp-usuario').value   = ec.usuario      || '';
-    document.getElementById('email-habilitado').checked = e.habilitado;
+    document.getElementById('smtp-host').value      = e.smtp_host  || 'smtp.gmail.com';
+    document.getElementById('smtp-port').value      = e.smtp_port  || 587;
+    document.getElementById('smtp-usuario').value   = e.usuario    || '';
+    // No se pre-carga la contraseña por seguridad (solo si ya hay una guardada se muestra placeholder)
+    document.getElementById('smtp-password').placeholder = e.password ? '(guardada)' : '••••••••••••••••';
+    document.getElementById('email-habilitado').checked = !!e.habilitado;
     document.getElementById('reporte-dia').value    = ec.reporte_dia  || 'fri';
     document.getElementById('reporte-hora').value   = ec.reporte_hora || '08:00';
 
@@ -732,10 +734,10 @@ function getDests(listaId) {
 async function guardarEmail() {
   const body = {
     email_habilitado:      document.getElementById('email-habilitado').checked,
-    smtp_host:             document.getElementById('smtp-host').value.trim(),
-    smtp_port:             +document.getElementById('smtp-port').value,
-    smtp_usuario:          document.getElementById('smtp-usuario').value.trim(),
-    smtp_password:         document.getElementById('smtp-password').value || null,
+    smtp_host:  document.getElementById('smtp-host').value.trim(),
+    smtp_port:  +document.getElementById('smtp-port').value,
+    smtp_user:  document.getElementById('smtp-usuario').value.trim(),
+    smtp_pass:  document.getElementById('smtp-password').value || null,
     destinatarios:         getDests('dest-lista'),
     destinatarios_criticos:getDests('dest-criticos-lista'),
     reporte_dia:           document.getElementById('reporte-dia').value,

@@ -580,12 +580,13 @@ def api_email_prueba():
           </p>
         </body></html>"""
         msg = MIMEMultipart("alternative")
+        remitente = _remitente(ecfg)
         msg["Subject"] = "✅ Prueba de email — Monitor Sigfox"
-        msg["From"]    = ecfg.get("remitente", ecfg.get("usuario", ""))
-        msg["To"]      = ", ".join(ecfg["destinatarios"])
+        msg["From"]    = remitente
+        msg["To"]      = ", ".join(ecfg.get("destinatarios", []))
         msg.attach(MIMEText(html, "html", "utf-8"))
         server = _smtp_conectar(ecfg)
-        server.sendmail(msg["From"], ecfg["destinatarios"], msg.as_string())
+        server.sendmail(remitente, ecfg.get("destinatarios", []), msg.as_string())
         server.quit()
         return jsonify({"ok": True})
     except Exception as e:
@@ -822,13 +823,26 @@ def api_reporte_csv():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _smtp_conectar(ecfg):
+    host  = ecfg.get("smtp_host", "smtp.gmail.com")
+    port  = int(ecfg.get("smtp_port", 587))
+    user  = ecfg.get("usuario", "")
+    pw    = ecfg.get("password", "")
+    if not host or not user or not pw:
+        raise ValueError("Configuración SMTP incompleta (host/usuario/password)")
     if ecfg.get("usar_tls", True):
-        server = smtplib.SMTP(ecfg["smtp_host"], ecfg["smtp_port"])
+        server = smtplib.SMTP(host, port, timeout=15)
+        server.ehlo()
         server.starttls()
+        server.ehlo()
     else:
-        server = smtplib.SMTP_SSL(ecfg["smtp_host"], ecfg["smtp_port"])
-    server.login(ecfg["usuario"], ecfg["password"])
+        server = smtplib.SMTP_SSL(host, port, timeout=15)
+    server.login(user, pw)
     return server
+
+
+def _remitente(ecfg):
+    """Devuelve el correo remitente, con fallback al usuario."""
+    return ecfg.get("remitente") or ecfg.get("usuario") or ""
 
 
 def enviar_reporte_semanal():
@@ -898,13 +912,18 @@ def enviar_reporte_semanal():
           </p>
         </body></html>"""
 
+        remitente = _remitente(ecfg)
+        destinatarios = ecfg.get("destinatarios", [])
+        if not destinatarios:
+            print("  [Scheduler] Sin destinatarios configurados, omitiendo reporte.")
+            return
+
         msg = MIMEMultipart("mixed")
         msg["Subject"] = f"📊 Reporte Semanal Sigfox — {pct}% del pool — {datos['mes_nombre']} {year}"
-        msg["From"]    = ecfg["remitente"]
-        msg["To"]      = ", ".join(ecfg["destinatarios"])
+        msg["From"]    = remitente
+        msg["To"]      = ", ".join(destinatarios)
         msg.attach(MIMEText(html, "html", "utf-8"))
 
-        # Adjuntar CSV
         adjunto = MIMEBase("application", "octet-stream")
         adjunto.set_payload(csv_content.encode("utf-8"))
         encoders.encode_base64(adjunto)
@@ -913,25 +932,203 @@ def enviar_reporte_semanal():
         msg.attach(adjunto)
 
         server = _smtp_conectar(ecfg)
-        server.sendmail(ecfg["remitente"], ecfg["destinatarios"], msg.as_string())
+        server.sendmail(remitente, destinatarios, msg.as_string())
         server.quit()
-        print(f"  [Scheduler] Reporte semanal enviado a {ecfg['destinatarios']}")
+        print(f"  [Scheduler] Reporte semanal enviado a {destinatarios}")
 
     except Exception as e:
         print(f"  [Scheduler] Error al enviar reporte semanal: {e}")
 
 
+# ── Alertas diarias ───────────────────────────────────────────────────────────
+# Evita enviar la misma alerta más de una vez al día
+_ultima_alerta = {"global": None, "dispositivos": {}}
+
+
+def verificar_y_enviar_alertas():
+    """Se ejecuta 3 veces al día. Envía email si se supera un umbral."""
+    try:
+        cfg  = cargar_config()
+        ecfg = cfg["alertas"]["email"]
+        if not ecfg.get("habilitado", False):
+            return
+
+        destinatarios = ecfg.get("destinatarios", [])
+        dest_criticos = ecfg.get("destinatarios_criticos", []) or destinatarios
+        if not destinatarios:
+            return
+
+        hoy   = date.today().isoformat()
+        year  = str(date.today().year)
+        month = str(date.today().month)
+
+        # Usa caché si existe, no fuerza nueva consulta
+        datos = cache_get_stale(f"{year}_{month}")
+        if not datos:
+            return   # Sin datos aún, no hay nada que alertar
+
+        pct_global    = datos.get("pct_global", 0)
+        umbral_adv_g  = cfg["alertas"].get("umbral_global_advertencia_pct", 75)
+        umbral_crit_g = cfg["alertas"].get("umbral_global_critico_pct", 90)
+        umbral_adv_d  = cfg["alertas"].get("umbral_advertencia_pct", 50)
+        umbral_crit_d = cfg["alertas"].get("umbral_critico_pct", 95)
+
+        remitente = _remitente(ecfg)
+
+        def _enviar(asunto, html_body, dests):
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = asunto
+            msg["From"]    = remitente
+            msg["To"]      = ", ".join(dests)
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+            server = _smtp_conectar(ecfg)
+            server.sendmail(remitente, dests, msg.as_string())
+            server.quit()
+            print(f"  [Alertas] Enviado: {asunto}")
+
+        # ── Alerta global ──────────────────────────────────────────────────────
+        nivel_global = None
+        if pct_global >= umbral_crit_g:
+            nivel_global = "CRITICO"
+        elif pct_global >= umbral_adv_g:
+            nivel_global = "ADVERTENCIA"
+
+        if nivel_global:
+            clave = f"{hoy}_{nivel_global}"
+            if _ultima_alerta["global"] != clave:
+                _ultima_alerta["global"] = clave
+                color = "#dc2626" if nivel_global == "CRITICO" else "#d97706"
+                icono = "🚨" if nivel_global == "CRITICO" else "⚠️"
+                dests_envio = dest_criticos if nivel_global == "CRITICO" else destinatarios
+                html = f"""<html><body style="font-family:Arial,sans-serif;max-width:650px">
+                  <h2 style="color:{color}">{icono} Alerta de Consumo Sigfox — {nivel_global}</h2>
+                  <div style="background:#f8fafc;border-left:5px solid {color};
+                              border-radius:8px;padding:20px;margin:16px 0">
+                    <div style="font-size:48px;font-weight:900;color:{color}">{pct_global}%</div>
+                    <div style="font-weight:700;color:{color}">del pool mensual consumido</div>
+                    <div style="color:#64748b;margin-top:4px">
+                      {datos['total_global']:,} de {datos['limite_global']:,} mensajes
+                    </div>
+                  </div>
+                  <table style="width:100%;border-collapse:collapse;font-size:14px">
+                    <tr style="background:#f1f5f9">
+                      <td style="padding:10px;font-weight:600">Proyección fin de mes</td>
+                      <td style="padding:10px;text-align:right;font-weight:800">
+                        {datos.get('proyeccion',0):,}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:10px">Disponibles</td>
+                      <td style="padding:10px;text-align:right;color:#16a34a;font-weight:700">
+                        {datos.get('disponibles',0):,}
+                      </td>
+                    </tr>
+                    <tr style="background:#f1f5f9">
+                      <td style="padding:10px">Dispositivos críticos</td>
+                      <td style="padding:10px;text-align:right;color:#dc2626">
+                        {datos.get('num_criticos',0)}
+                      </td>
+                    </tr>
+                  </table>
+                  <p style="color:#94a3b8;font-size:11px;margin-top:20px">
+                    Monitor Sigfox — {datos['mes_nombre']} {year}
+                  </p>
+                </body></html>"""
+                try:
+                    _enviar(
+                        f"{icono} Alerta {nivel_global}: pool Sigfox al {pct_global}% — {datos['mes_nombre']} {year}",
+                        html, dests_envio
+                    )
+                except Exception as e:
+                    print(f"  [Alertas] Error alerta global: {e}")
+
+        # ── Alertas por dispositivo ────────────────────────────────────────────
+        for dev in datos.get("dispositivos", []):
+            if dev["total"] == 0:
+                continue
+            nivel_dev = None
+            if dev["pct"] >= umbral_crit_d:
+                nivel_dev = "CRITICO"
+            elif dev["pct"] >= umbral_adv_d:
+                nivel_dev = "ADVERTENCIA"
+            if not nivel_dev:
+                continue
+
+            clave_dev = f"{hoy}_{dev['id']}_{nivel_dev}"
+            if _ultima_alerta["dispositivos"].get(dev["id"]) == clave_dev:
+                continue
+            _ultima_alerta["dispositivos"][dev["id"]] = clave_dev
+
+            color = "#dc2626" if nivel_dev == "CRITICO" else "#d97706"
+            icono = "🚨" if nivel_dev == "CRITICO" else "⚠️"
+            dests_envio = dest_criticos if nivel_dev == "CRITICO" else destinatarios
+            html_dev = f"""<html><body style="font-family:Arial,sans-serif;max-width:650px">
+              <h2 style="color:{color}">{icono} Dispositivo en {nivel_dev}: {dev['id']}</h2>
+              <div style="background:#f8fafc;border-left:5px solid {color};
+                          border-radius:8px;padding:20px;margin:16px 0">
+                <div style="font-size:36px;font-weight:900;color:{color}">{dev['pct']}%</div>
+                <div style="font-weight:700">del límite mensual consumido</div>
+                <div style="color:#64748b;margin-top:4px;font-family:monospace">ID: {dev['id']}</div>
+              </div>
+              <table style="width:100%;border-collapse:collapse;font-size:14px">
+                <tr style="background:#f1f5f9">
+                  <td style="padding:10px;font-weight:600">Mensajes acumulados</td>
+                  <td style="padding:10px;text-align:right;font-weight:800">{dev['total']:,}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px">Límite mensual</td>
+                  <td style="padding:10px;text-align:right">{dev['limite_mes']:,}</td>
+                </tr>
+                <tr style="background:#f1f5f9">
+                  <td style="padding:10px">Promedio por día</td>
+                  <td style="padding:10px;text-align:right">{dev['promedio_dia']}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px">Límite por día</td>
+                  <td style="padding:10px;text-align:right">{dev['limite_dia']:,}</td>
+                </tr>
+              </table>
+              <p style="color:#94a3b8;font-size:11px;margin-top:20px">
+                Monitor Sigfox — {datos['mes_nombre']} {year}
+              </p>
+            </body></html>"""
+            try:
+                _enviar(
+                    f"{icono} Dispositivo {nivel_dev}: {dev['id']} al {dev['pct']}% — {datos['mes_nombre']} {year}",
+                    html_dev, dests_envio
+                )
+            except Exception as e:
+                print(f"  [Alertas] Error alerta dispositivo {dev['id']}: {e}")
+
+    except Exception as e:
+        print(f"  [Alertas] Error general: {e}")
+        import traceback; traceback.print_exc()
+
+
 # ── Iniciar scheduler ─────────────────────────────────────────────────────────
 scheduler = BackgroundScheduler(timezone="America/Mexico_City")
+
+# Reporte semanal
 scheduler.add_job(
     enviar_reporte_semanal,
     trigger="cron",
-    day_of_week="fri",       # cada viernes
+    day_of_week="fri",
     hour=8,
     minute=0,
     id="reporte_semanal",
     replace_existing=True,
 )
+
+# Verificación de alertas: 08:00, 13:00 y 18:00 cada día
+scheduler.add_job(
+    verificar_y_enviar_alertas,
+    trigger="cron",
+    hour="8,13,18",
+    minute=30,
+    id="verificar_alertas",
+    replace_existing=True,
+)
+
 scheduler.start()
 
 # ══════════════════════════════════════════════════════════════════════════════
