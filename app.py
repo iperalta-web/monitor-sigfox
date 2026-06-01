@@ -509,6 +509,8 @@ def api_config_get():
             "reporte_dia":  cfg.get("email_config", {}).get("reporte_dia",  "fri"),
             "reporte_hora": cfg.get("email_config", {}).get("reporte_hora", "08:00"),
         },
+        "resend_api_key_set": bool(os.environ.get("RESEND_API_KEY")
+                                   or ecfg.get("resend_api_key")),
     })
 
 
@@ -547,6 +549,8 @@ def api_config_post():
             cfg["alertas"]["email"]["password"] = body["smtp_pass"]
         if "smtp_tls" in body:
             cfg["alertas"]["email"]["usar_tls"] = bool(body["smtp_tls"])
+        if body.get("resend_api_key"):
+            cfg["alertas"]["email"]["resend_api_key"] = body["resend_api_key"]
         if "reporte_dia" in body:
             cfg.setdefault("email_config", {})["reporte_dia"]  = body["reporte_dia"]
         if "reporte_hora" in body:
@@ -568,26 +572,24 @@ def api_email_prueba():
     try:
         cfg  = cargar_config()
         ecfg = cfg["alertas"]["email"]
-        if not ecfg.get("usuario") or not ecfg.get("password"):
-            return jsonify({"ok": False, "error": "Configura primero el usuario y contraseña SMTP"}), 400
+        resend_key = os.environ.get("RESEND_API_KEY") or ecfg.get("resend_api_key", "")
+        if not resend_key and (not ecfg.get("usuario") or not ecfg.get("password")):
+            return jsonify({"ok": False,
+                            "error": "Configura SMTP (usuario+contraseña) o añade RESEND_API_KEY"}), 400
+        remitente    = _remitente(ecfg)
+        destinatarios = ecfg.get("destinatarios", [])
+        metodo = "Resend API" if resend_key else f"SMTP {ecfg.get('smtp_host','?')}:{ecfg.get('smtp_port','?')}"
         html = f"""<html><body style="font-family:Arial,sans-serif">
           <h2 style="color:#1d4ed8">📡 Correo de prueba — Monitor Sigfox</h2>
           <p>Si recibes este correo, la configuración de email es correcta ✅</p>
           <p style="color:#888;font-size:12px;margin-top:16px">
-            Servidor: {ecfg['smtp_host']}:{ecfg['smtp_port']}<br>
-            Remitente: {ecfg.get('remitente', ecfg.get('usuario',''))}<br>
-            Destinatarios: {', '.join(ecfg['destinatarios'])}
+            Método: {metodo}<br>
+            Remitente: {remitente}<br>
+            Destinatarios: {', '.join(destinatarios)}
           </p>
         </body></html>"""
-        msg = MIMEMultipart("alternative")
-        remitente = _remitente(ecfg)
-        msg["Subject"] = "✅ Prueba de email — Monitor Sigfox"
-        msg["From"]    = remitente
-        msg["To"]      = ", ".join(ecfg.get("destinatarios", []))
-        msg.attach(MIMEText(html, "html", "utf-8"))
-        server = _smtp_conectar(ecfg)
-        server.sendmail(remitente, ecfg.get("destinatarios", []), msg.as_string())
-        server.quit()
+        _enviar_email(ecfg, remitente, destinatarios,
+                      "✅ Prueba de email — Monitor Sigfox", html)
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -822,37 +824,103 @@ def api_reporte_csv():
 # EMAIL SEMANAL (cada viernes automático)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _resolver_ipv4(host):
-    """Resuelve el hostname a una IP IPv4 para evitar problemas en Render free tier."""
-    import socket
-    resultados = socket.getaddrinfo(host, None, socket.AF_INET)  # AF_INET = solo IPv4
-    if not resultados:
-        raise OSError(f"No se encontró dirección IPv4 para {host}")
-    return resultados[0][4][0]  # primera IP IPv4
+def _enviar_via_resend(api_key, remitente, destinatarios, asunto, html):
+    """Envía email usando la API HTTP de Resend (resend.com). No usa SMTP."""
+    resp = requests.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {api_key}",
+                 "Content-Type": "application/json"},
+        json={"from": remitente,
+              "to": destinatarios if isinstance(destinatarios, list) else [destinatarios],
+              "subject": asunto,
+              "html": html},
+        timeout=20,
+    )
+    if resp.status_code not in (200, 201):
+        raise RuntimeError(f"Resend API error {resp.status_code}: {resp.text}")
+    return resp.json()
 
 
-def _smtp_conectar(ecfg):
-    host  = ecfg.get("smtp_host", "smtp.gmail.com")
-    port  = int(ecfg.get("smtp_port", 587))
-    user  = ecfg.get("usuario", "")
-    pw    = ecfg.get("password", "")
-    if not host or not user or not pw:
-        raise ValueError("Configuración SMTP incompleta (host/usuario/password)")
-    # Forzar IPv4 (Render free tier no soporta IPv6 saliente)
-    try:
-        ip4 = _resolver_ipv4(host)
-        print(f"  [SMTP] Conectando a {host} → {ip4}:{port}")
-    except Exception:
-        ip4 = host  # fallback al hostname original
-    if ecfg.get("usar_tls", True):
-        server = smtplib.SMTP(ip4, port, timeout=20)
-        server.ehlo(host)
-        server.starttls()
-        server.ehlo(host)
+def _enviar_email(ecfg, remitente, destinatarios, asunto, html, adjunto_csv=None):
+    """
+    Envía email eligiendo automáticamente el método:
+      1. Resend API  (si está configurado RESEND_API_KEY en env o en config)
+      2. SMTP        (fallback)
+    """
+    resend_key = (os.environ.get("RESEND_API_KEY")
+                  or ecfg.get("resend_api_key", ""))
+
+    if resend_key:
+        # ── Resend (HTTP, funciona en Render free) ────────────────────────────
+        print("  [Email] Enviando via Resend API...")
+        if adjunto_csv:
+            import base64
+            # Resend soporta adjuntos en base64
+            requests.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_key}",
+                         "Content-Type": "application/json"},
+                json={
+                    "from": remitente,
+                    "to": destinatarios if isinstance(destinatarios, list) else [destinatarios],
+                    "subject": asunto,
+                    "html": html,
+                    "attachments": [{
+                        "filename": adjunto_csv["filename"],
+                        "content": base64.b64encode(
+                            adjunto_csv["content"].encode("utf-8")).decode(),
+                    }],
+                },
+                timeout=20,
+            ).raise_for_status()
+        else:
+            _enviar_via_resend(resend_key, remitente, destinatarios, asunto, html)
     else:
-        server = smtplib.SMTP_SSL(ip4, port, timeout=20)
-    server.login(user, pw)
-    return server
+        # ── SMTP clásico ──────────────────────────────────────────────────────
+        print("  [Email] Enviando via SMTP...")
+        host = ecfg.get("smtp_host", "smtp.gmail.com")
+        port = int(ecfg.get("smtp_port", 587))
+        user = ecfg.get("usuario", "")
+        pw   = ecfg.get("password", "")
+        if not host or not user or not pw:
+            raise ValueError("Configuración SMTP incompleta (host/usuario/password). "
+                             "Configura SMTP o añade RESEND_API_KEY como variable de entorno.")
+
+        import socket
+        try:
+            # Forzar IPv4 (Render free no soporta IPv6)
+            infos = socket.getaddrinfo(host, None, socket.AF_INET)
+            ip4 = infos[0][4][0]
+        except Exception:
+            ip4 = host
+
+        if ecfg.get("usar_tls", True):
+            server = smtplib.SMTP(ip4, port, timeout=20)
+            server.ehlo(host); server.starttls(); server.ehlo(host)
+        else:
+            server = smtplib.SMTP_SSL(ip4, port, timeout=20)
+        server.login(user, pw)
+
+        if adjunto_csv:
+            msg = MIMEMultipart("mixed")
+            msg["Subject"] = asunto
+            msg["From"]    = remitente
+            msg["To"]      = ", ".join(destinatarios if isinstance(destinatarios, list) else [destinatarios])
+            msg.attach(MIMEText(html, "html", "utf-8"))
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(adjunto_csv["content"].encode("utf-8"))
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f'attachment; filename="{adjunto_csv["filename"]}"')
+            msg.attach(part)
+            server.sendmail(remitente, destinatarios, msg.as_string())
+        else:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = asunto
+            msg["From"]    = remitente
+            msg["To"]      = ", ".join(destinatarios if isinstance(destinatarios, list) else [destinatarios])
+            msg.attach(MIMEText(html, "html", "utf-8"))
+            server.sendmail(remitente, destinatarios, msg.as_string())
+        server.quit()
 
 
 def _remitente(ecfg):
@@ -933,22 +1001,15 @@ def enviar_reporte_semanal():
             print("  [Scheduler] Sin destinatarios configurados, omitiendo reporte.")
             return
 
-        msg = MIMEMultipart("mixed")
-        msg["Subject"] = f"📊 Reporte Semanal Sigfox — {pct}% del pool — {datos['mes_nombre']} {year}"
-        msg["From"]    = remitente
-        msg["To"]      = ", ".join(destinatarios)
-        msg.attach(MIMEText(html, "html", "utf-8"))
-
-        adjunto = MIMEBase("application", "octet-stream")
-        adjunto.set_payload(csv_content.encode("utf-8"))
-        encoders.encode_base64(adjunto)
-        adjunto.add_header("Content-Disposition",
-                           f"attachment; filename=reporte_sigfox_{year}_{int(month):02d}.csv")
-        msg.attach(adjunto)
-
-        server = _smtp_conectar(ecfg)
-        server.sendmail(remitente, destinatarios, msg.as_string())
-        server.quit()
+        _enviar_email(
+            ecfg, remitente, destinatarios,
+            f"📊 Reporte Semanal Sigfox — {pct}% del pool — {datos['mes_nombre']} {year}",
+            html,
+            adjunto_csv={
+                "filename": f"reporte_sigfox_{year}_{int(month):02d}.csv",
+                "content":  csv_content,
+            }
+        )
         print(f"  [Scheduler] Reporte semanal enviado a {destinatarios}")
 
     except Exception as e:
@@ -991,14 +1052,7 @@ def verificar_y_enviar_alertas():
         remitente = _remitente(ecfg)
 
         def _enviar(asunto, html_body, dests):
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = asunto
-            msg["From"]    = remitente
-            msg["To"]      = ", ".join(dests)
-            msg.attach(MIMEText(html_body, "html", "utf-8"))
-            server = _smtp_conectar(ecfg)
-            server.sendmail(remitente, dests, msg.as_string())
-            server.quit()
+            _enviar_email(ecfg, remitente, dests, asunto, html_body)
             print(f"  [Alertas] Enviado: {asunto}")
 
         # ── Alerta global ──────────────────────────────────────────────────────

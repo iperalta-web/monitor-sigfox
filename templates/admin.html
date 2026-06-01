@@ -517,10 +517,35 @@
       </div>
     </div>
     <div class="card-body">
+      <!-- Método activo -->
+      <div id="metodo-email-banner" style="border-radius:8px;padding:10px 14px;
+           margin-bottom:16px;font-size:13px;font-weight:600;display:none"></div>
+
+      <!-- Resend API Key (recomendado en Render) -->
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
+                  padding:14px 16px;margin-bottom:18px">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;
+                    letter-spacing:.6px;color:#1d4ed8;margin-bottom:8px">
+          ⚡ Resend API <span style="font-weight:400;text-transform:none;letter-spacing:0;
+          color:#64748b">— recomendado en Render (no requiere SMTP)</span>
+        </div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:10px">
+          Gratis hasta 3,000 emails/mes. Regístrate en
+          <a href="https://resend.com" target="_blank" style="color:#1d4ed8">resend.com</a>
+          y agrega <code>RESEND_API_KEY</code> como variable de entorno en Render,
+          o pégala aquí (se guarda en config.json).
+        </div>
+        <div class="field">
+          <label style="margin-top:0">RESEND_API_KEY</label>
+          <input type="password" id="resend-api-key" placeholder="re_xxxxxxxxxxxxxxxxxxxx"
+                 style="font-family:monospace">
+        </div>
+      </div>
+
       <!-- SMTP -->
       <div style="font-size:12px;font-weight:700;text-transform:uppercase;
                   letter-spacing:.6px;color:var(--muted);margin-bottom:12px">
-        Servidor SMTP
+        Servidor SMTP (alternativo)
       </div>
       <div class="form-grid">
         <div class="field">
@@ -681,9 +706,25 @@ async function cargarEmailConfig() {
     document.getElementById('smtp-host').value      = e.smtp_host  || 'smtp.gmail.com';
     document.getElementById('smtp-port').value      = e.smtp_port  || 587;
     document.getElementById('smtp-usuario').value   = e.usuario    || '';
-    // No se pre-carga la contraseña por seguridad (solo si ya hay una guardada se muestra placeholder)
     document.getElementById('smtp-password').placeholder = e.password ? '(guardada)' : '••••••••••••••••';
     document.getElementById('email-habilitado').checked = !!e.habilitado;
+
+    // Banner método activo
+    const banner = document.getElementById('metodo-email-banner');
+    banner.style.display = 'block';
+    if (cfg.resend_api_key_set) {
+      banner.style.background = '#dcfce7'; banner.style.border = '1px solid #86efac';
+      banner.style.color = '#16a34a';
+      banner.textContent = '✅ Usando Resend API — los emails funcionarán en Render';
+    } else if (e.usuario && e.password) {
+      banner.style.background = '#fef3c7'; banner.style.border = '1px solid #fcd34d';
+      banner.style.color = '#92400e';
+      banner.textContent = '⚠️ Usando SMTP — puede fallar en Render free tier (timeout). Se recomienda Resend API.';
+    } else {
+      banner.style.background = '#fee2e2'; banner.style.border = '1px solid #fca5a5';
+      banner.style.color = '#dc2626';
+      banner.textContent = '❌ Sin configuración de email. Agrega Resend API Key o configura SMTP.';
+    }
     document.getElementById('reporte-dia').value    = ec.reporte_dia  || 'fri';
     document.getElementById('reporte-hora').value   = ec.reporte_hora || '08:00';
 
@@ -734,10 +775,11 @@ function getDests(listaId) {
 async function guardarEmail() {
   const body = {
     email_habilitado:      document.getElementById('email-habilitado').checked,
-    smtp_host:  document.getElementById('smtp-host').value.trim(),
-    smtp_port:  +document.getElementById('smtp-port').value,
-    smtp_user:  document.getElementById('smtp-usuario').value.trim(),
-    smtp_pass:  document.getElementById('smtp-password').value || null,
+    smtp_host:      document.getElementById('smtp-host').value.trim(),
+    smtp_port:      +document.getElementById('smtp-port').value,
+    smtp_user:      document.getElementById('smtp-usuario').value.trim(),
+    smtp_pass:      document.getElementById('smtp-password').value || null,
+    resend_api_key: document.getElementById('resend-api-key').value.trim() || null,
     destinatarios:         getDests('dest-lista'),
     destinatarios_criticos:getDests('dest-criticos-lista'),
     reporte_dia:           document.getElementById('reporte-dia').value,
