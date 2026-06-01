@@ -867,6 +867,58 @@ def admin_set_dispositivos_proyecto(pid):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/admin/proyectos/<int:pid>/upload-csv", methods=["POST"])
+@admin_required
+def admin_upload_csv_proyecto(pid):
+    """Importa CSV de dispositivos y los asigna directamente al proyecto."""
+    try:
+        f = request.files.get("archivo")
+        if not f:
+            return jsonify({"ok": False, "error": "No se recibió archivo"}), 400
+        texto      = f.read().decode("utf-8", errors="ignore")
+        reemplazar = request.form.get("reemplazar", "false") == "true"
+
+        # 1. Insertar dispositivos en el pool global
+        ins, dup, err = importar_dispositivos_csv(texto, reemplazar=False)
+
+        # 2. Leer los IDs del CSV para asignarlos al proyecto
+        import csv, io
+        reader  = csv.DictReader(io.StringIO(texto))
+        col     = None
+        for posible in ["IDs", "ID", "device_id", "DeviceId", "id", "Device ID"]:
+            if posible in (reader.fieldnames or []):
+                col = posible
+                break
+        if col is None and reader.fieldnames:
+            col = reader.fieldnames[0]
+
+        ids_csv = []
+        if col:
+            for row in reader:
+                did = str(row[col]).strip()
+                if did:
+                    ids_csv.append(did)
+
+        # 3. Si reemplazar=true, quitar los dispositivos actuales del proyecto
+        if reemplazar:
+            asignar_dispositivos_proyecto(pid, [])
+
+        # 4. Asignar al proyecto
+        for did in ids_csv:
+            agregar_dispositivo_proyecto(pid, did)
+
+        cache_clear_all()
+        return jsonify({
+            "ok": True,
+            "insertados": ins,
+            "duplicados": dup,
+            "errores":    err,
+            "asignados":  len(ids_csv),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/admin/proyectos/<int:pid>/usuarios", methods=["GET"])
 @admin_required
 def admin_get_usuarios_proyecto(pid):

@@ -281,26 +281,71 @@
 
   <!-- Modal asignar dispositivos al proyecto -->
   <div class="modal-overlay" id="modal-proj-devs">
-    <div class="modal" style="width:520px">
+    <div class="modal" style="width:560px">
       <div class="modal-title">
         📡 Dispositivos — <span id="mpd-nombre"></span>
         <button class="close-btn" onclick="cerrarModalDevs()">✕</button>
       </div>
       <input type="hidden" id="mpd-pid">
-      <div style="display:flex;gap:8px;margin-bottom:12px">
-        <input type="text" id="mpd-search" placeholder="🔍 Buscar ID..."
-               oninput="filtrarDevsMod()" style="flex:1;padding:8px 12px;
-               border:1px solid var(--border);border-radius:8px;font-size:13px">
-        <button class="btn btn-sm btn-outline" onclick="selTodosDevsMod(true)">✅ Todos</button>
-        <button class="btn btn-sm btn-outline" onclick="selTodosDevsMod(false)">☐ Ninguno</button>
+
+      <!-- Tabs -->
+      <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border)">
+        <button id="tab-sel" onclick="switchTab('sel')"
+                style="padding:8px 18px;border:none;background:none;font-size:13px;
+                       font-weight:700;cursor:pointer;border-bottom:2px solid #1d4ed8;
+                       color:#1d4ed8;margin-bottom:-2px">
+          ☑️ Seleccionar
+        </button>
+        <button id="tab-csv" onclick="switchTab('csv')"
+                style="padding:8px 18px;border:none;background:none;font-size:13px;
+                       font-weight:600;cursor:pointer;color:var(--muted)">
+          ⬆️ Cargar CSV
+        </button>
       </div>
-      <div id="mpd-lista" style="max-height:340px;overflow-y:auto;display:flex;
-           flex-direction:column;gap:6px;border:1px solid var(--border);
-           border-radius:8px;padding:10px"></div>
-      <div class="form-actions" style="margin-top:16px">
-        <button class="btn btn-primary" onclick="guardarDevsMod()">💾 Guardar asignación</button>
-        <button class="btn btn-outline" onclick="cerrarModalDevs()">Cancelar</button>
+
+      <!-- Panel seleccionar -->
+      <div id="panel-sel">
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <input type="text" id="mpd-search" placeholder="🔍 Buscar ID..."
+                 oninput="filtrarDevsMod()" style="flex:1;padding:8px 12px;
+                 border:1px solid var(--border);border-radius:8px;font-size:13px">
+          <button class="btn btn-sm btn-outline" onclick="selTodosDevsMod(true)">✅ Todos</button>
+          <button class="btn btn-sm btn-outline" onclick="selTodosDevsMod(false)">☐ Ninguno</button>
+        </div>
+        <div id="mpd-lista" style="max-height:300px;overflow-y:auto;display:flex;
+             flex-direction:column;gap:6px;border:1px solid var(--border);
+             border-radius:8px;padding:10px"></div>
+        <div class="form-actions" style="margin-top:16px">
+          <button class="btn btn-primary" onclick="guardarDevsMod()">💾 Guardar asignación</button>
+          <button class="btn btn-outline" onclick="cerrarModalDevs()">Cancelar</button>
+        </div>
       </div>
+
+      <!-- Panel CSV -->
+      <div id="panel-csv" style="display:none">
+        <div style="background:#f8fafc;border:2px dashed var(--border);border-radius:10px;
+                    padding:18px;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px">
+            ⬆️ Cargar CSV de dispositivos para este proyecto
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+            El CSV debe tener columna <code>IDs</code>, <code>device_id</code> o <code>ID</code>.
+            Los dispositivos se agregan al pool global y se asignan a este proyecto.
+          </div>
+          <input type="file" id="mpd-csv-file" accept=".csv"
+                 style="font-size:13px;margin-bottom:10px;display:block">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;
+                        cursor:pointer;margin-bottom:14px">
+            <input type="checkbox" id="mpd-csv-reemplazar" style="width:14px;height:14px">
+            Reemplazar dispositivos actuales del proyecto (quitar los no incluidos en el CSV)
+          </label>
+          <button class="btn btn-primary" onclick="subirCSVProyecto()">📤 Importar al proyecto</button>
+        </div>
+        <div id="mpd-csv-result" style="font-size:13px;font-weight:600;display:none;
+             padding:10px 14px;border-radius:8px;margin-bottom:10px"></div>
+        <button class="btn btn-outline" onclick="cerrarModalDevs()">Cerrar</button>
+      </div>
+
     </div>
   </div>
 
@@ -1238,6 +1283,49 @@ async function abrirModalDevs(pid, nombre) {
 }
 function cerrarModalDevs() {
   document.getElementById('modal-proj-devs').classList.remove('show');
+}
+
+function switchTab(tab) {
+  const esSel = tab === 'sel';
+  document.getElementById('panel-sel').style.display = esSel ? '' : 'none';
+  document.getElementById('panel-csv').style.display = esSel ? 'none' : '';
+  document.getElementById('tab-sel').style.cssText +=
+    esSel ? ';color:#1d4ed8;border-bottom:2px solid #1d4ed8;margin-bottom:-2px'
+          : ';color:var(--muted);border-bottom:none;margin-bottom:0';
+  document.getElementById('tab-csv').style.cssText +=
+    !esSel ? ';color:#1d4ed8;border-bottom:2px solid #1d4ed8;margin-bottom:-2px'
+           : ';color:var(--muted);border-bottom:none;margin-bottom:0';
+}
+
+async function subirCSVProyecto() {
+  const pid  = document.getElementById('mpd-pid').value;
+  const file = document.getElementById('mpd-csv-file').files[0];
+  if (!file) { toast('⚠️ Selecciona un archivo CSV', false); return; }
+  const reemplazar = document.getElementById('mpd-csv-reemplazar').checked;
+  const form = new FormData();
+  form.append('archivo', file);
+  form.append('reemplazar', reemplazar ? 'true' : 'false');
+
+  const res  = await fetch(`/admin/proyectos/${pid}/upload-csv`, { method: 'POST', body: form });
+  const json = await res.json();
+  const div  = document.getElementById('mpd-csv-result');
+  div.style.display = 'block';
+  if (json.ok) {
+    div.style.background = '#dcfce7'; div.style.color = '#16a34a';
+    div.innerHTML = `✅ <b>${json.asignados}</b> dispositivos asignados al proyecto
+      &nbsp;·&nbsp; Nuevos en pool: ${json.insertados}
+      &nbsp;·&nbsp; Ya existían: ${json.duplicados}`;
+    toast(`✅ ${json.asignados} dispositivos importados al proyecto`);
+    // Recargar lista de selección
+    const res2  = await fetch(`/admin/proyectos/${pid}/dispositivos`);
+    const json2 = await res2.json();
+    _mpdTodos = json2.todos || [];
+    renderDevsMod(_mpdTodos);
+    cargarProyectos();
+  } else {
+    div.style.background = '#fee2e2'; div.style.color = '#dc2626';
+    div.textContent = '❌ Error: ' + json.error;
+  }
 }
 function renderDevsMod(lista) {
   const cont = document.getElementById('mpd-lista');
