@@ -72,6 +72,34 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS proyectos (
+            id            SERIAL PRIMARY KEY,
+            nombre        TEXT NOT NULL,
+            descripcion   TEXT,
+            cliente       TEXT,
+            limite_global INTEGER DEFAULT 5000000,
+            activo        INTEGER DEFAULT 1,
+            creado_en     TEXT
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS proyecto_dispositivos (
+            proyecto_id  INTEGER REFERENCES proyectos(id) ON DELETE CASCADE,
+            device_id    TEXT    REFERENCES dispositivos(device_id) ON DELETE CASCADE,
+            PRIMARY KEY (proyecto_id, device_id)
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS usuario_proyectos (
+            user_id     INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
+            proyecto_id INTEGER REFERENCES proyectos(id) ON DELETE CASCADE,
+            PRIMARY KEY (user_id, proyecto_id)
+        )
+    """)
+
     # Config por defecto
     for clave, valor in [('max_usuarios','10'),
                           ('nombre_app','Monitor Sigfox'),
@@ -90,6 +118,24 @@ def init_db():
             VALUES (%s, %s, 'Administrador', 'admin', 1, %s)
         """, ('admin', pw, datetime.now().isoformat()))
         print("  [DB] Usuario admin creado. Password: admin123")
+
+    # Proyecto default: si no existe ninguno, crear uno y migrar dispositivos existentes
+    cur.execute("SELECT COUNT(*) AS n FROM proyectos")
+    if cur.fetchone()["n"] == 0:
+        cur.execute("""
+            INSERT INTO proyectos(nombre, descripcion, cliente, limite_global, activo, creado_en)
+            VALUES ('Default', 'Proyecto por defecto', 'General', 5000000, 1, %s)
+            RETURNING id
+        """, (datetime.now().isoformat(),))
+        pid = cur.fetchone()["id"]
+        # Asignar todos los dispositivos existentes al proyecto default
+        cur.execute("SELECT device_id FROM dispositivos")
+        for row in cur.fetchall():
+            cur.execute("""
+                INSERT INTO proyecto_dispositivos(proyecto_id, device_id)
+                VALUES (%s, %s) ON CONFLICT DO NOTHING
+            """, (pid, row["device_id"]))
+        print(f"  [DB] Proyecto 'Default' creado (id={pid}) con dispositivos existentes.")
 
     conn.commit()
     cur.close()
@@ -309,3 +355,178 @@ def toggle_dispositivo(device_id, activo):
     cur  = conn.cursor()
     cur.execute("UPDATE dispositivos SET activo=%s WHERE device_id=%s", (activo, device_id))
     conn.commit(); cur.close(); conn.close()
+
+
+# ── CRUD proyectos ────────────────────────────────────────────────────────────
+
+def listar_proyectos(solo_activos=True):
+    conn = get_db(); cur = conn.cursor()
+    q = "SELECT * FROM proyectos"
+    if solo_activos:
+        q += " WHERE activo=1"
+    q += " ORDER BY nombre"
+    cur.execute(q)
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_proyecto(proyecto_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM proyectos WHERE id=%s", (proyecto_id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return dict(row) if row else None
+
+
+def crear_proyecto(nombre, descripcion="", cliente="", limite_global=5000000):
+    conn = get_db(); cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO proyectos(nombre, descripcion, cliente, limite_global, activo, creado_en)
+            VALUES (%s, %s, %s, %s, 1, %s) RETURNING id
+        """, (nombre.strip(), descripcion.strip(), cliente.strip(),
+              int(limite_global), datetime.now().isoformat()))
+        pid = cur.fetchone()["id"]
+        conn.commit()
+        return True, pid
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        cur.close(); conn.close()
+
+
+def actualizar_proyecto(proyecto_id, nombre=None, descripcion=None,
+                        cliente=None, limite_global=None, activo=None):
+    conn = get_db(); cur = conn.cursor()
+    if nombre        is not None: cur.execute("UPDATE proyectos SET nombre=%s        WHERE id=%s", (nombre,        proyecto_id))
+    if descripcion   is not None: cur.execute("UPDATE proyectos SET descripcion=%s   WHERE id=%s", (descripcion,   proyecto_id))
+    if cliente       is not None: cur.execute("UPDATE proyectos SET cliente=%s       WHERE id=%s", (cliente,       proyecto_id))
+    if limite_global is not None: cur.execute("UPDATE proyectos SET limite_global=%s WHERE id=%s", (int(limite_global), proyecto_id))
+    if activo        is not None: cur.execute("UPDATE proyectos SET activo=%s        WHERE id=%s", (activo,        proyecto_id))
+    conn.commit(); cur.close(); conn.close()
+
+
+def eliminar_proyecto(proyecto_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM proyectos WHERE id=%s", (proyecto_id,))
+    conn.commit(); cur.close(); conn.close()
+
+
+def contar_proyectos():
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) AS n FROM proyectos WHERE activo=1")
+    n = cur.fetchone()["n"]; cur.close(); conn.close()
+    return n
+
+
+# ── Dispositivos por proyecto ─────────────────────────────────────────────────
+
+def get_dispositivos_proyecto(proyecto_id):
+    """Retorna lista de device_ids activos asignados al proyecto."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT d.device_id FROM dispositivos d
+        JOIN proyecto_dispositivos pd ON pd.device_id = d.device_id
+        WHERE pd.proyecto_id = %s AND d.activo = 1
+        ORDER BY d.device_id
+    """, (proyecto_id,))
+    rows = cur.fetchall(); cur.close(); conn.close()
+    return [r["device_id"] for r in rows]
+
+
+def get_dispositivos_proyecto_detalle(proyecto_id):
+    """Retorna dispositivos con detalle (incluyendo inactivos) del proyecto."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT d.* FROM dispositivos d
+        JOIN proyecto_dispositivos pd ON pd.device_id = d.device_id
+        WHERE pd.proyecto_id = %s ORDER BY d.device_id
+    """, (proyecto_id,))
+    rows = cur.fetchall(); cur.close(); conn.close()
+    return [dict(r) for r in rows]
+
+
+def asignar_dispositivos_proyecto(proyecto_id, device_ids):
+    """Reemplaza la lista completa de dispositivos del proyecto."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM proyecto_dispositivos WHERE proyecto_id=%s", (proyecto_id,))
+    for did in device_ids:
+        cur.execute("""
+            INSERT INTO proyecto_dispositivos(proyecto_id, device_id)
+            VALUES (%s, %s) ON CONFLICT DO NOTHING
+        """, (proyecto_id, did))
+    conn.commit(); cur.close(); conn.close()
+
+
+def agregar_dispositivo_proyecto(proyecto_id, device_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO proyecto_dispositivos(proyecto_id, device_id)
+        VALUES (%s, %s) ON CONFLICT DO NOTHING
+    """, (proyecto_id, device_id))
+    conn.commit(); cur.close(); conn.close()
+
+
+def quitar_dispositivo_proyecto(proyecto_id, device_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM proyecto_dispositivos WHERE proyecto_id=%s AND device_id=%s",
+                (proyecto_id, device_id))
+    conn.commit(); cur.close(); conn.close()
+
+
+def get_proyectos_de_dispositivo(device_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT p.id, p.nombre FROM proyectos p
+        JOIN proyecto_dispositivos pd ON pd.proyecto_id = p.id
+        WHERE pd.device_id = %s
+    """, (device_id,))
+    rows = cur.fetchall(); cur.close(); conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Usuarios por proyecto ─────────────────────────────────────────────────────
+
+def get_proyectos_de_usuario(user_id):
+    """Proyectos asignados a un usuario viewer."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT p.* FROM proyectos p
+        JOIN usuario_proyectos up ON up.proyecto_id = p.id
+        WHERE up.user_id = %s AND p.activo = 1
+        ORDER BY p.nombre
+    """, (user_id,))
+    rows = cur.fetchall(); cur.close(); conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_proyectos_visibles(user_id, rol):
+    """Admin ve todos; viewer solo los asignados."""
+    if rol == "admin":
+        return listar_proyectos(solo_activos=True)
+    return get_proyectos_de_usuario(user_id)
+
+
+def asignar_usuarios_proyecto(proyecto_id, user_ids):
+    """Reemplaza la lista completa de usuarios del proyecto."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("DELETE FROM usuario_proyectos WHERE proyecto_id=%s", (proyecto_id,))
+    for uid in user_ids:
+        cur.execute("""
+            INSERT INTO usuario_proyectos(user_id, proyecto_id)
+            VALUES (%s, %s) ON CONFLICT DO NOTHING
+        """, (uid, proyecto_id))
+    conn.commit(); cur.close(); conn.close()
+
+
+def get_usuarios_de_proyecto(proyecto_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT u.id, u.username, u.nombre, u.rol FROM usuarios u
+        JOIN usuario_proyectos up ON up.user_id = u.id
+        WHERE up.proyecto_id = %s
+    """, (proyecto_id,))
+    rows = cur.fetchall(); cur.close(); conn.close()
+    return [dict(r) for r in rows]

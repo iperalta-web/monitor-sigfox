@@ -31,7 +31,15 @@ from database import (init_db, verificar_usuario, get_usuario, get_config,
                       contar_usuarios_activos, get_ids_dispositivos,
                       listar_dispositivos, agregar_dispositivo,
                       eliminar_dispositivo, toggle_dispositivo,
-                      importar_dispositivos_csv, contar_dispositivos)
+                      importar_dispositivos_csv, contar_dispositivos,
+                      # Proyectos
+                      listar_proyectos, get_proyecto, crear_proyecto,
+                      actualizar_proyecto, eliminar_proyecto, contar_proyectos,
+                      get_dispositivos_proyecto, get_dispositivos_proyecto_detalle,
+                      asignar_dispositivos_proyecto, agregar_dispositivo_proyecto,
+                      quitar_dispositivo_proyecto, get_proyectos_de_dispositivo,
+                      get_proyectos_de_usuario, get_proyectos_visibles,
+                      asignar_usuarios_proyecto, get_usuarios_de_proyecto)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
@@ -248,16 +256,24 @@ def _consultar_device(args):
         return None
 
 
-def obtener_datos(year, month, force=False):
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    cache_key = f"{year}_{month}"
+def obtener_datos(year, month, proyecto_id=None, force=False):
+    from concurrent.futures import ThreadPoolExecutor
+    cache_key = f"{proyecto_id}_{year}_{month}" if proyecto_id else f"all_{year}_{month}"
     if not force:
         cached = cache_get(cache_key)
         if cached:
             return cached
 
     cfg = cargar_config()
-    ids = get_ids_dispositivos()
+    ids = (get_dispositivos_proyecto(proyecto_id)
+           if proyecto_id else get_ids_dispositivos())
+
+    # Límite global: del proyecto si existe, sino del config global
+    if proyecto_id:
+        p = get_proyecto(proyecto_id)
+        limite_global = p["limite_global"] if p else cfg["limites"]["global_mensual"]
+    else:
+        limite_global = cfg["limites"]["global_mensual"]
 
     dias_mes = calendar.monthrange(int(year), int(month))[1]
     hoy = date.today()
@@ -273,7 +289,6 @@ def obtener_datos(year, month, force=False):
             if resultado is not None:
                 registros.append(resultado)
 
-    limite_global = cfg["limites"]["global_mensual"]
     limite_diario = cfg["limites"]["diario_default"]
     total_global  = sum(r["total"] for r in registros)
     pct_global    = round(total_global / limite_global * 100, 2) if limite_global else 0
@@ -404,21 +419,23 @@ def logout():
 @login_required
 def index():
     u = usuario_actual()
+    proyectos = get_proyectos_visibles(u["id"], u["rol"])
     return render_template("index.html",
         usuario=u,
+        proyectos=proyectos,
         nombre_app=get_config("nombre_app", "Monitor Sigfox"),
         logo_empresa=get_config("logo_empresa", "IotNet"))
 
 
 _refreshing = set()  # evita consultas paralelas
 
-def _refresh_background(year, month):
-    key = f"{year}_{month}"
+def _refresh_background(year, month, proyecto_id=None):
+    key = f"{proyecto_id}_{year}_{month}"
     if key in _refreshing:
         return
     _refreshing.add(key)
     try:
-        obtener_datos(year, month, force=True)
+        obtener_datos(year, month, proyecto_id=proyecto_id, force=True)
     except Exception as e:
         print(f"  [BG] Error al refrescar {key}: {e}")
     finally:
@@ -442,42 +459,58 @@ def _make_placeholder(year, month):
     }
 
 
+@app.route("/api/proyectos")
+@login_required
+def api_proyectos():
+    u = usuario_actual()
+    proyectos = get_proyectos_visibles(u["id"], u["rol"])
+    return jsonify({"ok": True, "proyectos": proyectos})
+
+
 @app.route("/api/datos")
 @login_required
 def api_datos():
     import threading
-    hoy   = date.today()
-    year  = request.args.get("year",  str(hoy.year))
-    month = request.args.get("month", str(hoy.month))
-    force = request.args.get("force", "false") == "true"
-    key   = f"{year}_{month}"
+    hoy         = date.today()
+    year        = request.args.get("year",  str(hoy.year))
+    month       = request.args.get("month", str(hoy.month))
+    force       = request.args.get("force", "false") == "true"
+    proyecto_id = request.args.get("proyecto_id")
+    if proyecto_id:
+        proyecto_id = int(proyecto_id)
+        # Verificar acceso
+        u = usuario_actual()
+        visibles = [p["id"] for p in get_proyectos_visibles(u["id"], u["rol"])]
+        if proyecto_id not in visibles:
+            return jsonify({"ok": False, "error": "Sin acceso a este proyecto"}), 403
 
-    # Siempre no-bloqueante: inicia refresh en background y responde al instante
+    key   = f"{proyecto_id}_{year}_{month}"
     stale = cache_get_stale(key)
-    fresh = cache_get(key)  # None si venció
+    fresh = cache_get(key)
 
     if force:
-        # Forzado: invalida cache e inicia refresco en background
-        threading.Thread(target=_refresh_background, args=(year, month), daemon=True).start()
+        threading.Thread(target=_refresh_background,
+                         args=(year, month), kwargs={"proyecto_id": proyecto_id},
+                         daemon=True).start()
         if stale:
             stale["actualizando"] = True
             return jsonify({"ok": True, "datos": stale, "desde_cache": True, "actualizando": True})
-        # Sin datos previos aún
-        placeholder = _make_placeholder(year, month)
-        return jsonify({"ok": True, "datos": placeholder, "desde_cache": False, "actualizando": True})
+        return jsonify({"ok": True, "datos": _make_placeholder(year, month),
+                        "desde_cache": False, "actualizando": True})
 
     if fresh:
-        # Cache vigente — devuelve inmediatamente
         return jsonify({"ok": True, "datos": fresh, "desde_cache": True})
 
     if stale:
-        # Cache vencida — devuelve los viejos y refresca en background
-        threading.Thread(target=_refresh_background, args=(year, month), daemon=True).start()
+        threading.Thread(target=_refresh_background,
+                         args=(year, month), kwargs={"proyecto_id": proyecto_id},
+                         daemon=True).start()
         stale["actualizando"] = True
         return jsonify({"ok": True, "datos": stale, "desde_cache": True, "actualizando": True})
 
-    # Sin cache — inicia fetch en background y responde inmediatamente
-    threading.Thread(target=_refresh_background, args=(year, month), daemon=True).start()
+    threading.Thread(target=_refresh_background,
+                     args=(year, month), kwargs={"proyecto_id": proyecto_id},
+                     daemon=True).start()
     return jsonify({"ok": True, "datos": _make_placeholder(year, month),
                     "desde_cache": False, "actualizando": True})
 
@@ -752,6 +785,129 @@ def admin_config():
     set_config("logo_empresa", request.form.get("logo_empresa", "IotNet"))
     set_config("max_usuarios", request.form.get("max_usuarios", "10"))
     return redirect(url_for("admin_panel", msg="Configuración guardada", tipo="ok"))
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RUTAS — Proyectos (admin)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/admin/proyectos/crear", methods=["POST"])
+@admin_required
+def admin_crear_proyecto():
+    try:
+        body = request.get_json()
+        ok, result = crear_proyecto(
+            nombre        = body.get("nombre", "").strip(),
+            descripcion   = body.get("descripcion", ""),
+            cliente       = body.get("cliente", ""),
+            limite_global = int(body.get("limite_global", 5000000)),
+        )
+        if ok:
+            return jsonify({"ok": True, "id": result})
+        return jsonify({"ok": False, "error": result}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/proyectos/<int:pid>/editar", methods=["POST"])
+@admin_required
+def admin_editar_proyecto(pid):
+    try:
+        body = request.get_json()
+        actualizar_proyecto(
+            pid,
+            nombre        = body.get("nombre"),
+            descripcion   = body.get("descripcion"),
+            cliente       = body.get("cliente"),
+            limite_global = body.get("limite_global"),
+            activo        = body.get("activo"),
+        )
+        cache_clear_all()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/proyectos/<int:pid>/eliminar", methods=["POST"])
+@admin_required
+def admin_eliminar_proyecto(pid):
+    try:
+        eliminar_proyecto(pid)
+        cache_clear_all()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/proyectos/<int:pid>/dispositivos", methods=["GET"])
+@admin_required
+def admin_get_dispositivos_proyecto(pid):
+    try:
+        asignados = get_dispositivos_proyecto_detalle(pid)
+        todos     = listar_dispositivos(solo_activos=False)
+        asig_ids  = {d["device_id"] for d in asignados}
+        return jsonify({
+            "ok": True,
+            "asignados": [d["device_id"] for d in asignados],
+            "todos": [{"device_id": d["device_id"], "nombre": d.get("nombre", ""),
+                       "asignado": d["device_id"] in asig_ids} for d in todos],
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/proyectos/<int:pid>/dispositivos", methods=["POST"])
+@admin_required
+def admin_set_dispositivos_proyecto(pid):
+    try:
+        body = request.get_json()
+        asignar_dispositivos_proyecto(pid, body.get("device_ids", []))
+        cache_clear_all()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/proyectos/<int:pid>/usuarios", methods=["GET"])
+@admin_required
+def admin_get_usuarios_proyecto(pid):
+    try:
+        asignados = get_usuarios_de_proyecto(pid)
+        todos     = listar_usuarios()
+        asig_ids  = {u["id"] for u in asignados}
+        return jsonify({
+            "ok": True,
+            "todos": [{"id": u["id"], "username": u["username"],
+                       "nombre": u.get("nombre", ""), "rol": u["rol"],
+                       "asignado": u["id"] in asig_ids} for u in todos
+                      if u["rol"] != "admin"],   # admins ven todo, no se asignan
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/proyectos/<int:pid>/usuarios", methods=["POST"])
+@admin_required
+def admin_set_usuarios_proyecto(pid):
+    try:
+        body = request.get_json()
+        asignar_usuarios_proyecto(pid, body.get("user_ids", []))
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/proyectos", methods=["GET"])
+@admin_required
+def admin_proyectos_json():
+    try:
+        proyectos = listar_proyectos(solo_activos=False)
+        for p in proyectos:
+            p["num_dispositivos"] = len(get_dispositivos_proyecto(p["id"]))
+            p["num_usuarios"]     = len(get_usuarios_de_proyecto(p["id"]))
+        return jsonify({"ok": True, "proyectos": proyectos})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # REPORTE CSV

@@ -231,6 +231,19 @@
   }
   #toast.show { transform: translateY(0); opacity: 1; }
 
+  /* ── Proyectos sidebar ── */
+  .proyecto-btn {
+    display: flex; flex-direction: column; width: 100%;
+    text-align: left; padding: 9px 12px; border-radius: 8px;
+    border: 1.5px solid var(--border); background: white;
+    cursor: pointer; margin-bottom: 6px; transition: all .15s;
+  }
+  .proyecto-btn:hover { border-color: #1d4ed8; background: #eff6ff; }
+  .proyecto-btn.activo { border-color: #1d4ed8; background: #eff6ff;
+                          box-shadow: 0 0 0 3px rgba(29,78,216,.1); }
+  .proyecto-nombre { font-size: 13px; font-weight: 700; color: var(--text); }
+  .proyecto-cliente { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
   /* ── Status dot ── */
   .status-dot {
     width: 8px; height: 8px; border-radius: 50%;
@@ -287,6 +300,31 @@
 
   <!-- Sidebar -->
   <aside class="sidebar">
+
+    {% if proyectos|length > 1 %}
+    <div class="sidebar-section">
+      <div class="sidebar-title">🏢 Proyecto / Cliente</div>
+      {% for p in proyectos %}
+      <button class="proyecto-btn" data-id="{{ p.id }}" data-limite="{{ p.limite_global }}"
+              onclick="seleccionarProyecto({{ p.id }}, '{{ p.nombre|e }}')">
+        <span class="proyecto-dot"></span>
+        <span class="proyecto-nombre">{{ p.nombre }}</span>
+        {% if p.cliente %}<span class="proyecto-cliente">{{ p.cliente }}</span>{% endif %}
+      </button>
+      {% endfor %}
+    </div>
+    {% elif proyectos|length == 1 %}
+    <div class="sidebar-section">
+      <div class="sidebar-title">🏢 Proyecto</div>
+      <div style="font-size:13px;font-weight:700;padding:8px 4px">
+        {{ proyectos[0].nombre }}
+        {% if proyectos[0].cliente %}
+        <div style="font-size:12px;color:var(--muted);font-weight:400">{{ proyectos[0].cliente }}</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
     <div class="sidebar-section">
       <div class="sidebar-title">📅 Período</div>
       <label>Año</label>
@@ -546,6 +584,7 @@ let sortKey = 'total';
 let sortAsc = false;
 let chartAcum = null;
 let chartBarras = null;
+let proyectoActivo = null;  // { id, nombre }
 
 const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio',
                'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -555,8 +594,26 @@ document.addEventListener('DOMContentLoaded', () => {
   initSelectors();
   initClock();
   cargarConfig();
+  // Seleccionar primer proyecto visible automáticamente
+  const primerBtn = document.querySelector('.proyecto-btn');
+  if (primerBtn) {
+    const pid = +primerBtn.dataset.id;
+    const pnom = primerBtn.querySelector('.proyecto-nombre').textContent.trim();
+    seleccionarProyecto(pid, pnom, false);  // false = no recargar aún
+  }
   cargarDatos();
 });
+
+function seleccionarProyecto(id, nombre, recargar = true) {
+  proyectoActivo = { id, nombre };
+  document.querySelectorAll('.proyecto-btn').forEach(b => {
+    b.classList.toggle('activo', +b.dataset.id === id);
+  });
+  // Mostrar nombre del proyecto en el banner del pool
+  const el = document.getElementById('pool-periodo');
+  if (el) el.dataset.proyecto = nombre;
+  if (recargar) cargarDatos();
+}
 
 function initSelectors() {
   const hoy = new Date();
@@ -587,7 +644,8 @@ async function cargarDatos(force = false) {
     `Consultando ${MESES[+month]} ${year}...`;
 
   try {
-    const url = `/api/datos?year=${year}&month=${month}&force=${force}`;
+    let url = `/api/datos?year=${year}&month=${month}&force=${force}`;
+    if (proyectoActivo) url += `&proyecto_id=${proyectoActivo.id}`;
     const res = await fetch(url);
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'Error desconocido');
