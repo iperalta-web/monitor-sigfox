@@ -356,59 +356,61 @@
       <div id="panel-contrato" style="display:none">
         <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
                     padding:12px 14px;margin-bottom:14px;font-size:12px;color:#1e40af">
-          ℹ️ Filtra por grupo, selecciona el contrato y descarga un CSV o importa
-          directamente al proyecto.
+          ℹ️ Busca contratos, marca los que deseas y pulsa <b>Importar seleccionados</b>.
+          Puedes importar varios contratos a la vez.
         </div>
 
-        <!-- Buscar contrato por nombre -->
-        <div class="field" style="margin-bottom:12px">
-          <label>Buscar contrato por nombre</label>
-          <div style="display:flex;gap:8px">
-            <input type="text" id="mpd-contrato-search"
-                   placeholder="🔍 ej: xal, iotnet, suntech..."
-                   oninput="filtrarContratos()"
-                   style="flex:1;padding:9px 12px;border:1.5px solid var(--border);
-                          border-radius:8px;font-size:13px;background:#f8fafc">
-            <button class="btn btn-sm btn-outline" id="btn-filtrar-contratos"
-                    onclick="cargarContratos(true)" title="Recargar contratos">
-              🔄
-            </button>
+        <!-- Barra de búsqueda + acciones -->
+        <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
+          <input type="text" id="mpd-contrato-search"
+                 placeholder="🔍 ej: verse, xal, iotnet..."
+                 oninput="filtrarContratos()"
+                 style="flex:1;padding:8px 12px;border:1.5px solid var(--border);
+                        border-radius:8px;font-size:13px;background:#f8fafc">
+          <button class="btn btn-sm btn-outline" id="btn-filtrar-contratos"
+                  onclick="cargarContratos(true)" title="Recargar contratos">🔄</button>
+          <button class="btn btn-sm btn-outline" onclick="selAllContratos(true)"
+                  title="Marcar todos los filtrados">☑️ Todos</button>
+          <button class="btn btn-sm btn-outline" onclick="selAllContratos(false)"
+                  title="Desmarcar todos">☐</button>
+        </div>
+
+        <!-- Contador -->
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+          <span id="mpd-contrato-count"></span>
+          &nbsp;·&nbsp; <span id="mpd-contrato-sel-count" style="color:#1d4ed8;font-weight:700"></span>
+        </div>
+
+        <!-- Lista de contratos con checkboxes -->
+        <div id="mpd-contrato-lista"
+             style="max-height:220px;overflow-y:auto;border:1.5px solid var(--border);
+                    border-radius:8px;background:#f8fafc;padding:6px 4px;margin-bottom:12px">
+          <div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">
+            ⏳ Cargando contratos...
           </div>
         </div>
 
-        <!-- Contrato -->
-        <div class="field" style="margin-bottom:12px">
-          <label>Contrato Sigfox <span id="mpd-contrato-count" style="font-weight:400;color:var(--muted)"></span></label>
-          <select id="mpd-contrato-sel"
-                  style="width:100%;padding:9px 12px;border:1.5px solid var(--border);
-                         border-radius:8px;font-size:13px;background:#f8fafc">
-            <option value="">— Cargando contratos... —</option>
-          </select>
-        </div>
-
-        <!-- Info tokens -->
-        <div id="mpd-contrato-info" style="display:none;font-size:12px;color:var(--muted);
-             background:#f8fafc;border-radius:8px;padding:8px 12px;margin-bottom:12px">
-        </div>
-
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;
-                      cursor:pointer;margin-bottom:14px">
+                      cursor:pointer;margin-bottom:12px">
           <input type="checkbox" id="mpd-contrato-reemplazar" style="width:14px;height:14px">
           Reemplazar dispositivos actuales del proyecto
         </label>
 
+        <!-- Barra de progreso multi-contrato -->
         <div id="mpd-contrato-result" style="font-size:13px;font-weight:600;display:none;
              padding:10px 14px;border-radius:8px;margin-bottom:12px"></div>
+        <div id="mpd-contrato-prog" style="display:none;margin-bottom:12px">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:4px" id="mpd-prog-label"></div>
+          <div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden">
+            <div id="mpd-prog-bar"
+                 style="height:100%;background:#1d4ed8;border-radius:4px;width:0%;transition:width .4s"></div>
+          </div>
+        </div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary" id="btn-importar-contrato"
-                  onclick="importarContrato()">
-            📥 Importar al proyecto
-          </button>
-          <button class="btn btn-sm" id="btn-descargar-csv-contrato"
-                  style="background:#059669;color:white;border:none"
-                  onclick="descargarCSVContrato()">
-            💾 Descargar CSV
+                  onclick="importarContratos()">
+            📥 Importar seleccionados
           </button>
           <button class="btn btn-outline" onclick="cerrarModalDevs()">Cancelar</button>
         </div>
@@ -1519,161 +1521,165 @@ let _contratosData     = [];  // todos los contratos (cache)
 
 async function cargarContratos(force=false) {
   if (_contratosCargados && !force) return;
-  const sel = document.getElementById('mpd-contrato-sel');
-  const btn = document.getElementById('btn-filtrar-contratos');
+  const lista = document.getElementById('mpd-contrato-lista');
+  const btn   = document.getElementById('btn-filtrar-contratos');
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
-  sel.innerHTML = '<option value="">⏳ Cargando contratos...</option>';
-  document.getElementById('mpd-contrato-info').style.display = 'none';
+  lista.innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">⏳ Cargando contratos...</div>';
   try {
     const res  = await fetch('/admin/api/contratos');
     const json = await res.json();
     if (!json.ok) {
-      sel.innerHTML = `<option value="">❌ ${json.error}</option>`;
+      lista.innerHTML = `<div style="color:#dc2626;padding:12px;font-size:13px">❌ ${json.error}</div>`;
       return;
     }
-    _contratosData = json.contratos;
+    _contratosData    = json.contratos;
     _contratosCargados = true;
-    // Aplicar filtro actual si hay texto
     filtrarContratos();
   } catch(e) {
-    sel.innerHTML = '<option value="">❌ Error al conectar con Sigfox API</option>';
+    lista.innerHTML = '<div style="color:#dc2626;padding:12px;font-size:13px">❌ Error al conectar con Sigfox API</div>';
   }
   if (btn) { btn.disabled = false; btn.textContent = '🔄'; }
 }
 
 function filtrarContratos() {
-  const q   = (document.getElementById('mpd-contrato-search')?.value || '').toLowerCase().trim();
-  const sel = document.getElementById('mpd-contrato-sel');
-  const cnt = document.getElementById('mpd-contrato-count');
+  const q    = (document.getElementById('mpd-contrato-search')?.value || '').toLowerCase().trim();
+  const cnt  = document.getElementById('mpd-contrato-count');
+  const lista = document.getElementById('mpd-contrato-lista');
   if (!_contratosData.length) return;
 
   const filtrados = q
     ? _contratosData.filter(c => c.name.toLowerCase().includes(q))
     : _contratosData;
 
-  if (cnt) cnt.textContent = `(${filtrados.length} de ${_contratosData.length})`;
+  if (cnt) cnt.textContent = `${filtrados.length} de ${_contratosData.length} contratos`;
 
-  sel.innerHTML = `<option value="">— Selecciona un contrato (${filtrados.length}) —</option>` +
-    filtrados.map(c =>
-      `<option value="${c.id}" data-activ="${c.activTokens}" data-max="${c.maxTokens}">` +
-      `${c.name}${c.activTokens > 0 ? ' ✅ ' + c.activTokens + ' activos' : ''}</option>`
-    ).join('');
-  document.getElementById('mpd-contrato-info').style.display = 'none';
-}
-
-// Mostrar info del contrato seleccionado
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('mpd-contrato-sel')?.addEventListener('change', () => {
-    const sel  = document.getElementById('mpd-contrato-sel');
-    const opt  = sel.options[sel.selectedIndex];
-    const info = document.getElementById('mpd-contrato-info');
-    if (opt && opt.value) {
-      const activ = opt.dataset.activ || '?';
-      const max   = opt.dataset.max   || '?';
-      info.style.display = 'block';
-      info.innerHTML = `📋 <b>${opt.text.split(' ✅')[0]}</b><br>
-        Tokens activos: <b style="color:${+activ>0?'var(--ok)':'var(--muted)'}">
-        ${activ}</b> &nbsp;/&nbsp; Máximo: <b>${max}</b>`;
-    } else {
-      info.style.display = 'none';
-    }
-  });
-});
-
-function descargarCSVContrato() {
-  const contratoId = document.getElementById('mpd-contrato-sel').value;
-  if (!contratoId) { toast('⚠️ Selecciona un contrato primero', false); return; }
-  const btn = document.getElementById('btn-descargar-csv-contrato');
-  btn.disabled = true; btn.textContent = '⏳ Generando...';
-  // Descarga directa via link temporal
-  const a = document.createElement('a');
-  a.href = `/admin/api/contratos/${contratoId}/csv`;
-  a.download = `dispositivos_contrato_${contratoId}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  toast('💾 Descargando CSV del contrato...');
-  setTimeout(() => { btn.disabled = false; btn.textContent = '💾 Descargar CSV'; }, 3000);
-}
-
-async function importarContrato() {
-  const pid        = document.getElementById('mpd-pid').value;
-  const contratoId = document.getElementById('mpd-contrato-sel').value;
-  const reemplazar = document.getElementById('mpd-contrato-reemplazar').checked;
-  if (!contratoId) { toast('⚠️ Selecciona un contrato', false); return; }
-
-  const btn = document.getElementById('btn-importar-contrato');
-  const div = document.getElementById('mpd-contrato-result');
-  btn.disabled = true; btn.textContent = '⏳ Iniciando...';
-  div.style.display = 'none';
-
-  try {
-    // Lanza el job en background (responde inmediatamente con job_id)
-    const res  = await fetch(`/admin/proyectos/${pid}/importar-contrato`, {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ contrato_id: contratoId, reemplazar })
-    });
-    const json = await res.json();
-    if (!json.ok) {
-      div.style.display = 'block';
-      div.style.background = '#fee2e2'; div.style.color = '#dc2626';
-      div.textContent = '❌ ' + json.error;
-      toast('❌ ' + json.error, false);
-      btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
-      return;
-    }
-
-    // Polling del estado cada 3 segundos
-    const jobId = json.job_id;
-    div.style.display = 'block';
-    div.style.background = '#eff6ff'; div.style.color = '#1d4ed8';
-    div.textContent = '⏳ Descargando dispositivos del contrato Sigfox...';
-
-    const poll = setInterval(async () => {
-      try {
-        const r2   = await fetch(`/admin/api/import-job/${jobId}`);
-        const job  = await r2.json();
-        if (job.estado === 'pending') {
-          div.textContent = '⏳ ' + (job.msg || 'Procesando...');
-          btn.textContent = '⏳ ' + (job.msg || 'Procesando...');
-        } else if (job.estado === 'ok') {
-          clearInterval(poll);
-          div.style.background = '#dcfce7'; div.style.color = '#16a34a';
-          if (job.asignados === 0) {
-            div.textContent = '⚠️ ' + (job.msg || 'Sin dispositivos en este contrato.');
-          } else {
-            div.innerHTML = `✅ <b>${job.asignados}</b> dispositivos asignados
-              &nbsp;·&nbsp; Nuevos en pool: <b>${job.nuevos_en_pool}</b>`;
-            toast(`✅ ${job.asignados} dispositivos importados del contrato`);
-          }
-          // Refresca lista y tarjetas
-          const r3   = await fetch(`/admin/proyectos/${pid}/dispositivos`);
-          const j3   = await r3.json();
-          _mpdTodos  = j3.todos || [];
-          renderDevsMod(_mpdTodos);
-          cargarProyectos();
-          btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
-        } else {
-          clearInterval(poll);
-          div.style.background = '#fee2e2'; div.style.color = '#dc2626';
-          div.textContent = '❌ Error: ' + job.error;
-          toast('❌ ' + job.error, false);
-          btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
-        }
-      } catch(e) {
-        clearInterval(poll);
-        div.textContent = '❌ Error de red al consultar estado';
-        btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
-      }
-    }, 3000);
-
-  } catch(e) {
-    div.style.display = 'block';
-    div.style.background = '#fee2e2'; div.style.color = '#dc2626';
-    div.textContent = '❌ Error de red';
-    toast('❌ Error de red', false);
-    btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
+  if (!filtrados.length) {
+    lista.innerHTML = '<div style="text-align:center;color:var(--muted);padding:16px;font-size:13px">Sin resultados</div>';
+    _actualizarContadorSel();
+    return;
   }
+
+  lista.innerHTML = filtrados.map(c => `
+    <label style="display:flex;align-items:center;gap:10px;padding:6px 10px;
+                  border-radius:6px;cursor:pointer;font-size:12px;
+                  transition:background .15s" class="contrato-row"
+           onmouseover="this.style.background='#e0f2fe'" onmouseout="this.style.background=''">
+      <input type="checkbox" class="chk-contrato" value="${c.id}"
+             data-name="${c.name}" data-activ="${c.activTokens||0}" data-max="${c.maxTokens||0}"
+             onchange="_actualizarContadorSel()"
+             style="width:15px;height:15px;flex-shrink:0;cursor:pointer">
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="${c.name}">${c.name}</span>
+      <span style="flex-shrink:0;font-size:11px;color:${c.activTokens>0?'var(--ok)':'var(--muted)'}">
+        ${c.activTokens>0 ? '✅ '+c.activTokens : '—'} / ${c.maxTokens||'?'}
+      </span>
+    </label>`).join('');
+
+  _actualizarContadorSel();
+}
+
+function selAllContratos(marcar) {
+  document.querySelectorAll('.chk-contrato').forEach(c => c.checked = marcar);
+  _actualizarContadorSel();
+}
+
+function _actualizarContadorSel() {
+  const n   = document.querySelectorAll('.chk-contrato:checked').length;
+  const el  = document.getElementById('mpd-contrato-sel-count');
+  const btn = document.getElementById('btn-importar-contrato');
+  if (el)  el.textContent  = n > 0 ? `${n} seleccionado${n>1?'s':''}` : '';
+  if (btn) btn.textContent = n > 0 ? `📥 Importar ${n} contrato${n>1?'s':''}` : '📥 Importar seleccionados';
+}
+
+async function _importarUnContrato(pid, contratoId, reemplazar) {
+  /** Lanza job y espera (polling) hasta ok/error. Devuelve objeto resultado. */
+  const res  = await fetch(`/admin/proyectos/${pid}/importar-contrato`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ contrato_id: contratoId, reemplazar })
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`HTTP ${res.status}: ${txt}`);
+  }
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error desconocido');
+
+  const jobId = json.job_id;
+  // Polling
+  for (let i = 0; i < 300; i++) {   // máx ~15 min (300 * 3s)
+    await new Promise(r => setTimeout(r, 3000));
+    const r2  = await fetch(`/admin/api/import-job/${jobId}`);
+    if (!r2.ok) throw new Error(`Poll HTTP ${r2.status}`);
+    const job = await r2.json();
+    if (job.estado === 'ok')    return job;
+    if (job.estado === 'error') throw new Error(job.error || 'Error en job');
+    // pending → sigue esperando
+  }
+  throw new Error('Timeout esperando resultado');
+}
+
+async function importarContratos() {
+  const pid        = document.getElementById('mpd-pid').value;
+  const reemplazar = document.getElementById('mpd-contrato-reemplazar').checked;
+  const checks     = [...document.querySelectorAll('.chk-contrato:checked')];
+
+  if (!checks.length) { toast('⚠️ Marca al menos un contrato', false); return; }
+
+  const btn   = document.getElementById('btn-importar-contrato');
+  const div   = document.getElementById('mpd-contrato-result');
+  const prog  = document.getElementById('mpd-contrato-prog');
+  const label = document.getElementById('mpd-prog-label');
+  const bar   = document.getElementById('mpd-prog-bar');
+
+  btn.disabled   = true;
+  div.style.display  = 'none';
+  prog.style.display = 'block';
+  bar.style.width    = '0%';
+
+  let totalAsig = 0, totalNuevos = 0, errores = [];
+
+  for (let i = 0; i < checks.length; i++) {
+    const cid   = checks[i].value;
+    const cname = checks[i].dataset.name || cid;
+    const pct   = Math.round((i / checks.length) * 100);
+    bar.style.width  = pct + '%';
+    label.textContent = `(${i+1}/${checks.length}) Importando: ${cname}...`;
+
+    try {
+      const job = await _importarUnContrato(pid, cid, reemplazar && i === 0);
+      totalAsig   += job.asignados    || 0;
+      totalNuevos += job.nuevos_en_pool || 0;
+    } catch(e) {
+      errores.push(`${cname}: ${e.message}`);
+    }
+  }
+
+  bar.style.width    = '100%';
+  prog.style.display = 'none';
+  div.style.display  = 'block';
+
+  if (errores.length && !totalAsig) {
+    div.style.background = '#fee2e2'; div.style.color = '#dc2626';
+    div.innerHTML = '❌ Errores:<br>' + errores.map(e=>`• ${e}`).join('<br>');
+    toast('❌ Error al importar contratos', false);
+  } else {
+    div.style.background = '#dcfce7'; div.style.color = '#16a34a';
+    div.innerHTML = `✅ <b>${totalAsig}</b> dispositivos asignados · Nuevos en pool: <b>${totalNuevos}</b>`
+      + (errores.length ? `<br><span style="color:#d97706">⚠️ ${errores.length} error(es): ${errores.join('; ')}</span>` : '');
+    toast(`✅ ${totalAsig} dispositivos importados`);
+  }
+
+  // Refresca lista y tarjetas del proyecto
+  try {
+    const r3  = await fetch(`/admin/proyectos/${pid}/dispositivos`);
+    const j3  = await r3.json();
+    _mpdTodos = j3.todos || [];
+    renderDevsMod(_mpdTodos);
+  } catch(_) {}
+  cargarProyectos();
+
+  btn.disabled = false;
+  _actualizarContadorSel();
 }
 
 // ── Viewers del proyecto ──────────────────────────────────────────────────────
