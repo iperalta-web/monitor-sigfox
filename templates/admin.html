@@ -1664,7 +1664,7 @@ async function importarContratos() {
     toast('❌ Error al importar contratos', false);
   } else {
     div.style.background = '#dcfce7'; div.style.color = '#16a34a';
-    div.innerHTML = `✅ <b>${totalAsig}</b> dispositivos asignados · Nuevos en pool: <b>${totalNuevos}</b>`
+    div.innerHTML = `✅ <b>${+totalAsig||0}</b> dispositivos asignados · Nuevos en pool: <b>${+totalNuevos||0}</b>`
       + (errores.length ? `<br><span style="color:#d97706">⚠️ ${errores.length} error(es): ${errores.join('; ')}</span>` : '');
     toast(`✅ ${totalAsig} dispositivos importados`);
   }

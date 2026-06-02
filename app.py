@@ -648,7 +648,8 @@ def _reprogramar_scheduler(cfg):
 @app.route("/admin")
 @admin_required
 def admin_panel():
-    return render_template("admin.html",
+    from flask import make_response
+    resp = make_response(render_template("admin.html",
         usuario_actual=session.get("username"),
         usuarios=listar_usuarios(),
         usuarios_activos=contar_usuarios_activos(),
@@ -658,7 +659,10 @@ def admin_panel():
         dispositivos=listar_dispositivos(solo_activos=False),
         msg=request.args.get("msg"),
         msg_tipo=request.args.get("tipo", "ok"),
-    )
+    ))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 # ── Dispositivos API ──────────────────────────────────────────────────────────
