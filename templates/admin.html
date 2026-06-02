@@ -198,6 +198,7 @@
     <a href="#sec-usuarios"  class="btn btn-outline btn-sm">👥 Usuarios</a>
     <a href="#sec-dispositivos" class="btn btn-outline btn-sm">📡 Dispositivos</a>
     <a href="#sec-email"     class="btn btn-outline btn-sm">📧 Email</a>
+    <a href="#sec-sync"      class="btn btn-outline btn-sm">🔄 Auto-Sync</a>
   </div>
 
   <!-- Stats -->
@@ -301,6 +302,11 @@
                        font-weight:600;cursor:pointer;color:var(--muted)">
           ⬆️ Cargar CSV
         </button>
+        <button id="tab-contrato" onclick="switchTab('contrato')"
+                style="padding:8px 18px;border:none;background:none;font-size:13px;
+                       font-weight:600;cursor:pointer;color:var(--muted)">
+          🔗 Desde Contrato
+        </button>
       </div>
 
       <!-- Panel seleccionar -->
@@ -344,6 +350,74 @@
         <div id="mpd-csv-result" style="font-size:13px;font-weight:600;display:none;
              padding:10px 14px;border-radius:8px;margin-bottom:10px"></div>
         <button class="btn btn-outline" onclick="cerrarModalDevs()">Cerrar</button>
+      </div>
+
+      <!-- Panel Contrato Sigfox -->
+      <div id="panel-contrato" style="display:none">
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
+                    padding:12px 14px;margin-bottom:14px;font-size:12px;color:#1e40af">
+          ℹ️ Filtra por grupo, selecciona el contrato y descarga un CSV o importa
+          directamente al proyecto.
+        </div>
+
+        <!-- Filtro por Grupo -->
+        <div class="field" style="margin-bottom:12px">
+          <label>Filtrar por Grupo <span style="font-weight:400;color:var(--muted)">(opcional)</span></label>
+          <div style="display:flex;gap:8px">
+            <select id="mpd-grupo-sel"
+                    style="flex:1;padding:9px 12px;border:1.5px solid var(--border);
+                           border-radius:8px;font-size:13px;background:#f8fafc">
+              <option value="">— Todos los grupos —</option>
+            </select>
+            <button class="btn btn-sm btn-outline" id="btn-cargar-grupos"
+                    onclick="cargarGrupos()" title="Cargar grupos Sigfox">
+              🔄
+            </button>
+          </div>
+        </div>
+
+        <!-- Contrato -->
+        <div class="field" style="margin-bottom:12px">
+          <label>Contrato Sigfox</label>
+          <div style="display:flex;gap:8px">
+            <select id="mpd-contrato-sel"
+                    style="flex:1;padding:9px 12px;border:1.5px solid var(--border);
+                           border-radius:8px;font-size:13px;background:#f8fafc">
+              <option value="">— Selecciona un contrato —</option>
+            </select>
+            <button class="btn btn-sm btn-outline" id="btn-filtrar-contratos"
+                    onclick="cargarContratos(true)" title="Cargar/filtrar contratos">
+              🔄
+            </button>
+          </div>
+        </div>
+
+        <!-- Info tokens -->
+        <div id="mpd-contrato-info" style="display:none;font-size:12px;color:var(--muted);
+             background:#f8fafc;border-radius:8px;padding:8px 12px;margin-bottom:12px">
+        </div>
+
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;
+                      cursor:pointer;margin-bottom:14px">
+          <input type="checkbox" id="mpd-contrato-reemplazar" style="width:14px;height:14px">
+          Reemplazar dispositivos actuales del proyecto
+        </label>
+
+        <div id="mpd-contrato-result" style="font-size:13px;font-weight:600;display:none;
+             padding:10px 14px;border-radius:8px;margin-bottom:12px"></div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="btn-importar-contrato"
+                  onclick="importarContrato()">
+            📥 Importar al proyecto
+          </button>
+          <button class="btn btn-sm" id="btn-descargar-csv-contrato"
+                  style="background:#059669;color:white;border:none"
+                  onclick="descargarCSVContrato()">
+            💾 Descargar CSV
+          </button>
+          <button class="btn btn-outline" onclick="cerrarModalDevs()">Cancelar</button>
+        </div>
       </div>
 
     </div>
@@ -807,6 +881,76 @@
     </div>
   </div>
   </div><!-- /sec-email -->
+
+  <!-- ═══════════════════════════════════════════════════ AUTO-SYNC -->
+  <div id="sec-sync">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">🔄 Auto-Sync de Contratos Sigfox</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="sync-status-badge" style="font-size:12px;font-weight:600"></span>
+        <button class="btn btn-primary btn-sm" onclick="ejecutarSyncManual()"
+                id="btn-sync-manual">
+          ▶️ Sincronizar ahora
+        </button>
+      </div>
+    </div>
+    <div class="card-body">
+
+      <!-- Banner estado -->
+      <div id="sync-banner" style="border-radius:8px;padding:10px 14px;margin-bottom:16px;
+           font-size:13px;font-weight:600;display:none"></div>
+
+      <!-- Habilitar + intervalo -->
+      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-bottom:18px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;
+                      font-size:13px;font-weight:600">
+          <input type="checkbox" id="sync-habilitado" style="width:16px;height:16px">
+          Sincronización automática habilitada
+        </label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:13px;font-weight:600">Cada</label>
+          <select id="sync-intervalo"
+                  style="padding:7px 10px;border:1.5px solid var(--border);
+                         border-radius:8px;font-size:13px">
+            <option value="1">1 hora</option>
+            <option value="2">2 horas</option>
+            <option value="4">4 horas</option>
+            <option value="6" selected>6 horas</option>
+            <option value="12">12 horas</option>
+            <option value="24">24 horas (diario)</option>
+          </select>
+        </div>
+        <div style="font-size:12px;color:var(--muted)">
+          Última sync: <b id="sync-ultimo">—</b>
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin-bottom:18px">
+
+      <!-- Lista de contratos configurados -->
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;
+                  letter-spacing:.6px;color:var(--muted);margin-bottom:12px">
+        Contratos a sincronizar
+      </div>
+      <div id="sync-contratos-lista" style="display:flex;flex-direction:column;gap:10px;
+           margin-bottom:14px"></div>
+
+      <button onclick="agregarSyncContrato()"
+              style="background:none;border:1.5px dashed var(--border);border-radius:8px;
+                     padding:10px;cursor:pointer;color:var(--muted);font-size:13px;
+                     width:100%;margin-bottom:16px">
+        ➕ Agregar contrato a sincronizar
+      </button>
+
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="guardarSync()">💾 Guardar configuración</button>
+        <span id="sync-saved-msg" style="color:var(--ok);font-size:13px;
+              font-weight:600;display:none">✅ Guardado</span>
+      </div>
+    </div>
+  </div>
+  </div><!-- /sec-sync -->
 
 </div><!-- /container -->
 
@@ -1274,6 +1418,9 @@ async function abrirModalDevs(pid, nombre) {
   document.getElementById('mpd-pid').value    = pid;
   document.getElementById('mpd-nombre').textContent = nombre;
   document.getElementById('mpd-search').value = '';
+  _contratosCargados = false;  // forzar recarga si cambia de proyecto
+  // Asegurarse de arrancar en la pestaña Seleccionar
+  switchTab('sel');
   document.getElementById('modal-proj-devs').classList.add('show');
   document.getElementById('mpd-lista').innerHTML = '<p style="color:var(--muted);font-size:13px">Cargando...</p>';
   const res  = await fetch(`/admin/proyectos/${pid}/dispositivos`);
@@ -1286,15 +1433,26 @@ function cerrarModalDevs() {
 }
 
 function switchTab(tab) {
-  const esSel = tab === 'sel';
-  document.getElementById('panel-sel').style.display = esSel ? '' : 'none';
-  document.getElementById('panel-csv').style.display = esSel ? 'none' : '';
-  document.getElementById('tab-sel').style.cssText +=
-    esSel ? ';color:#1d4ed8;border-bottom:2px solid #1d4ed8;margin-bottom:-2px'
-          : ';color:var(--muted);border-bottom:none;margin-bottom:0';
-  document.getElementById('tab-csv').style.cssText +=
-    !esSel ? ';color:#1d4ed8;border-bottom:2px solid #1d4ed8;margin-bottom:-2px'
-           : ';color:var(--muted);border-bottom:none;margin-bottom:0';
+  ['sel','csv','contrato'].forEach(t => {
+    const isActive = t === tab;
+    document.getElementById('panel-' + t).style.display = isActive ? '' : 'none';
+    const btn = document.getElementById('tab-' + t);
+    if (isActive) {
+      btn.style.color = '#1d4ed8';
+      btn.style.borderBottom = '2px solid #1d4ed8';
+      btn.style.marginBottom = '-2px';
+      btn.style.fontWeight   = '700';
+    } else {
+      btn.style.color = 'var(--muted)';
+      btn.style.borderBottom = 'none';
+      btn.style.marginBottom = '0';
+      btn.style.fontWeight   = '600';
+    }
+  });
+  if (tab === 'contrato') {
+    if (!_gruposCargados) cargarGrupos();
+    else if (!_contratosCargados) cargarContratos(true);
+  }
 }
 
 async function subirCSVProyecto() {
@@ -1364,6 +1522,149 @@ async function guardarDevsMod() {
   } else { toast('❌ ' + json.error, false); }
 }
 
+// ── Importar desde contrato Sigfox ───────────────────────────────────────────
+let _contratosCargados = false;
+let _gruposCargados    = false;
+let _contratosData     = [];  // cache de contratos para mostrar info
+
+async function cargarGrupos() {
+  const sel = document.getElementById('mpd-grupo-sel');
+  const btn = document.getElementById('btn-cargar-grupos');
+  btn.disabled = true; btn.textContent = '⏳';
+  sel.innerHTML = '<option value="">⏳ Cargando grupos...</option>';
+  try {
+    const res  = await fetch('/admin/api/grupos');
+    const json = await res.json();
+    if (!json.ok) {
+      sel.innerHTML = `<option value="">❌ ${json.error}</option>`;
+      return;
+    }
+    sel.innerHTML = '<option value="">— Todos los grupos —</option>' +
+      json.grupos.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+    _gruposCargados = true;
+    // Cargar contratos sin filtro
+    cargarContratos(true);
+  } catch(e) {
+    sel.innerHTML = '<option value="">❌ Error de red</option>';
+  }
+  btn.disabled = false; btn.textContent = '🔄';
+}
+
+async function cargarContratos(force=false) {
+  if (_contratosCargados && !force) return;
+  const sel     = document.getElementById('mpd-contrato-sel');
+  const grupId  = document.getElementById('mpd-grupo-sel').value;
+  const btn     = document.getElementById('btn-filtrar-contratos');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  sel.innerHTML = '<option value="">⏳ Cargando contratos...</option>';
+  document.getElementById('mpd-contrato-info').style.display = 'none';
+  try {
+    const qs  = grupId ? `?groupId=${grupId}` : '';
+    const res  = await fetch('/admin/api/contratos' + qs);
+    const json = await res.json();
+    if (!json.ok) {
+      sel.innerHTML = `<option value="">❌ ${json.error}</option>`;
+      return;
+    }
+    _contratosData = json.contratos;
+    if (!json.contratos.length) {
+      sel.innerHTML = '<option value="">Sin contratos en este grupo</option>';
+      _contratosCargados = true;
+      return;
+    }
+    sel.innerHTML = '<option value="">— Selecciona un contrato —</option>' +
+      json.contratos.map(c =>
+        `<option value="${c.id}" data-activ="${c.activTokens}" data-max="${c.maxTokens}">` +
+        `${c.name} (${c.activTokens} tokens activos)</option>`
+      ).join('');
+    _contratosCargados = true;
+  } catch(e) {
+    sel.innerHTML = '<option value="">❌ Error al conectar con Sigfox API</option>';
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🔄'; }
+}
+
+// Mostrar info del contrato seleccionado
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('mpd-grupo-sel')?.addEventListener('change', () => {
+    _contratosCargados = false;
+    cargarContratos(true);
+  });
+  document.getElementById('mpd-contrato-sel')?.addEventListener('change', () => {
+    const sel = document.getElementById('mpd-contrato-sel');
+    const opt = sel.options[sel.selectedIndex];
+    const info = document.getElementById('mpd-contrato-info');
+    if (opt && opt.value) {
+      const activ = opt.dataset.activ || '?';
+      const max   = opt.dataset.max   || '?';
+      info.style.display = 'block';
+      info.innerHTML = `📋 Contrato: <b>${opt.text}</b><br>
+        Tokens activos: <b>${activ}</b> &nbsp;/&nbsp; Máximo: <b>${max}</b>`;
+    } else {
+      info.style.display = 'none';
+    }
+  });
+});
+
+function descargarCSVContrato() {
+  const contratoId = document.getElementById('mpd-contrato-sel').value;
+  if (!contratoId) { toast('⚠️ Selecciona un contrato primero', false); return; }
+  const btn = document.getElementById('btn-descargar-csv-contrato');
+  btn.disabled = true; btn.textContent = '⏳ Generando...';
+  // Descarga directa via link temporal
+  const a = document.createElement('a');
+  a.href = `/admin/api/contratos/${contratoId}/csv`;
+  a.download = `dispositivos_contrato_${contratoId}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  toast('💾 Descargando CSV del contrato...');
+  setTimeout(() => { btn.disabled = false; btn.textContent = '💾 Descargar CSV'; }, 3000);
+}
+
+async function importarContrato() {
+  const pid        = document.getElementById('mpd-pid').value;
+  const contratoId = document.getElementById('mpd-contrato-sel').value;
+  const reemplazar = document.getElementById('mpd-contrato-reemplazar').checked;
+  if (!contratoId) { toast('⚠️ Selecciona un contrato', false); return; }
+
+  const btn = document.getElementById('btn-importar-contrato');
+  btn.disabled = true; btn.textContent = '⏳ Importando...';
+  const div = document.getElementById('mpd-contrato-result');
+  div.style.display = 'none';
+
+  try {
+    const res  = await fetch(`/admin/proyectos/${pid}/importar-contrato`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ contrato_id: contratoId, reemplazar })
+    });
+    const json = await res.json();
+    div.style.display = 'block';
+    if (json.ok) {
+      div.style.background = '#dcfce7'; div.style.color = '#16a34a';
+      div.innerHTML = `✅ <b>${json.asignados}</b> dispositivos asignados al proyecto
+        &nbsp;·&nbsp; Nuevos en pool: ${json.nuevos_en_pool}`;
+      toast(`✅ ${json.asignados} dispositivos importados del contrato`);
+      // Refresca la lista de selección y los proyectos
+      const res2  = await fetch(`/admin/proyectos/${pid}/dispositivos`);
+      const json2 = await res2.json();
+      _mpdTodos = json2.todos || [];
+      renderDevsMod(_mpdTodos);
+      cargarProyectos();
+    } else {
+      div.style.background = '#fee2e2'; div.style.color = '#dc2626';
+      div.textContent = '❌ Error: ' + json.error;
+      toast('❌ ' + json.error, false);
+    }
+  } catch(e) {
+    div.style.display = 'block';
+    div.style.background = '#fee2e2'; div.style.color = '#dc2626';
+    div.textContent = '❌ Error de red';
+    toast('❌ Error de red', false);
+  }
+  btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
+}
+
 // ── Viewers del proyecto ──────────────────────────────────────────────────────
 async function abrirModalUsers(pid, nombre) {
   document.getElementById('mpu-pid').value    = pid;
@@ -1413,6 +1714,140 @@ async function guardarUsersMod() {
     if (e.target === this) this.classList.remove('show');
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AUTO-SYNC DE CONTRATOS
+// ══════════════════════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', cargarSyncConfig);
+
+let _proyectosSync = [];  // cache para los selects de proyecto
+
+async function cargarSyncConfig() {
+  try {
+    // Cargar proyectos para los selects
+    const rp   = await fetch('/admin/proyectos');
+    const jp   = await rp.json();
+    _proyectosSync = jp.proyectos || [];
+
+    const res  = await fetch('/admin/api/sync-contratos');
+    const json = await res.json();
+    if (!json.ok) return;
+
+    document.getElementById('sync-habilitado').checked = !!json.habilitado;
+    document.getElementById('sync-intervalo').value    = json.intervalo_horas || 6;
+    document.getElementById('sync-ultimo').textContent = json.ultimo_sync || 'Nunca';
+
+    // Banner
+    const banner = document.getElementById('sync-banner');
+    const badge  = document.getElementById('sync-status-badge');
+    banner.style.display = 'block';
+    if (json.habilitado && json.contratos.length) {
+      banner.style.cssText += ';background:#dcfce7;border:1px solid #86efac;color:#16a34a';
+      banner.textContent = `✅ Auto-sync activo — ${json.contratos.length} contrato(s) · cada ${json.intervalo_horas}h`;
+      badge.textContent  = '✅ Activo'; badge.style.color = 'var(--ok)';
+    } else if (!json.contratos.length) {
+      banner.style.cssText += ';background:#fef3c7;border:1px solid #fcd34d;color:#92400e';
+      banner.textContent = '⚠️ Sin contratos configurados. Agrega al menos uno.';
+      badge.textContent  = '⚠️ Sin contratos'; badge.style.color = '#d97706';
+    } else {
+      banner.style.cssText += ';background:#fee2e2;border:1px solid #fca5a5;color:#dc2626';
+      banner.textContent = '⛔ Auto-sync deshabilitado.';
+      badge.textContent  = '⛔ Inactivo'; badge.style.color = 'var(--crit)';
+    }
+
+    // Renderizar contratos
+    const lista = document.getElementById('sync-contratos-lista');
+    lista.innerHTML = '';
+    (json.contratos || []).forEach(c => renderSyncContrato(c));
+  } catch(e) { console.error(e); }
+}
+
+function proyectosOptions(seleccionado='') {
+  return `<option value="">— Solo pool global —</option>` +
+    _proyectosSync.map(p =>
+      `<option value="${p.id}" ${String(p.id) === String(seleccionado) ? 'selected' : ''}>
+        ${p.nombre}${p.cliente ? ' ('+p.cliente+')' : ''}
+       </option>`
+    ).join('');
+}
+
+function renderSyncContrato(c={}) {
+  const lista = document.getElementById('sync-contratos-lista');
+  const div = document.createElement('div');
+  div.style.cssText = `background:#f8fafc;border:1px solid var(--border);border-radius:10px;
+                        padding:14px 16px;display:grid;
+                        grid-template-columns:1fr 1fr auto;gap:10px;align-items:end`;
+  div.innerHTML = `
+    <div class="field" style="margin:0">
+      <label style="font-size:12px">ID del contrato Sigfox</label>
+      <input type="text" class="sync-contrato-id"
+             value="${c.contrato_id || ''}"
+             placeholder="ej: 5f3e2a1b..."
+             style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;
+                    font-size:13px;font-family:monospace;width:100%">
+    </div>
+    <div class="field" style="margin:0">
+      <label style="font-size:12px">Asignar al proyecto</label>
+      <select class="sync-proyecto-id"
+              style="padding:8px 12px;border:1.5px solid var(--border);
+                     border-radius:8px;font-size:13px;width:100%">
+        ${proyectosOptions(c.proyecto_id || '')}
+      </select>
+    </div>
+    <button onclick="this.closest('div').remove()"
+            style="background:#fee2e2;border:none;border-radius:8px;padding:8px 12px;
+                   cursor:pointer;color:var(--crit);font-size:16px;height:38px">✕</button>`;
+  lista.appendChild(div);
+}
+
+function agregarSyncContrato() {
+  renderSyncContrato({});
+  // Scroll al nuevo elemento
+  const lista = document.getElementById('sync-contratos-lista');
+  lista.lastChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function guardarSync() {
+  const contratos = [...document.querySelectorAll('#sync-contratos-lista > div')].map(div => ({
+    contrato_id: div.querySelector('.sync-contrato-id').value.trim(),
+    proyecto_id: div.querySelector('.sync-proyecto-id').value || null,
+    nombre:      div.querySelector('.sync-contrato-id').value.trim(),
+  })).filter(c => c.contrato_id);
+
+  const body = {
+    contratos,
+    habilitado:       document.getElementById('sync-habilitado').checked,
+    intervalo_horas:  +document.getElementById('sync-intervalo').value,
+  };
+  try {
+    const res  = await fetch('/admin/api/sync-contratos', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (json.ok) {
+      toast('✅ Configuración de Auto-Sync guardada');
+      const msg = document.getElementById('sync-saved-msg');
+      msg.style.display = 'inline';
+      setTimeout(() => msg.style.display = 'none', 3000);
+      cargarSyncConfig();
+    } else { toast('❌ ' + json.error, false); }
+  } catch(e) { toast('❌ Error al guardar', false); }
+}
+
+async function ejecutarSyncManual() {
+  const btn = document.getElementById('btn-sync-manual');
+  btn.disabled = true; btn.textContent = '⏳ Sincronizando...';
+  try {
+    const res  = await fetch('/admin/api/sync-contratos/ejecutar', { method:'POST' });
+    const json = await res.json();
+    if (json.ok) {
+      toast('✅ Sincronización iniciada — revisa los logs en unos segundos');
+      setTimeout(() => cargarSyncConfig(), 5000);  // refrescar después de 5s
+    } else { toast('❌ ' + json.error, false); }
+  } catch(e) { toast('❌ Error de red', false); }
+  setTimeout(() => { btn.disabled = false; btn.textContent = '▶️ Sincronizar ahora'; }, 4000);
+}
 
 async function probarEmail() {
   const btn = event.target;

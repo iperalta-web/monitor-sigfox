@@ -948,6 +948,193 @@ def admin_set_usuarios_proyecto(pid):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/admin/api/grupos", methods=["GET"])
+@admin_required
+def admin_api_grupos():
+    """Lista los grupos Sigfox visibles para las credenciales configuradas."""
+    try:
+        cfg      = cargar_config()
+        login    = cfg["sigfox"]["login"]
+        password = cfg["sigfox"]["password"]
+        if not login or not password:
+            return jsonify({"ok": False, "error": "Credenciales Sigfox no configuradas"}), 400
+
+        grupos = []
+        url = "https://api.sigfox.com/v2/groups/"
+        params = {"limit": 100}
+        while url:
+            r = requests.get(url, auth=HTTPBasicAuth(login, password),
+                             params=params, timeout=15)
+            params = {}
+            if r.status_code != 200:
+                return jsonify({"ok": False,
+                                "error": f"Sigfox API error {r.status_code}: {r.text}"}), 502
+            data = r.json()
+            grupos.extend(data.get("data", []))
+            paging   = data.get("paging", {})
+            next_url = paging.get("next")
+            url = next_url if next_url and next_url != url else None
+
+        resultado = [{"id": g["id"], "name": g.get("name", g["id"])} for g in grupos]
+        return jsonify({"ok": True, "grupos": resultado})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/api/contratos", methods=["GET"])
+@admin_required
+def admin_api_contratos():
+    """Lista contratos Sigfox, opcionalmente filtrados por groupId."""
+    try:
+        cfg      = cargar_config()
+        login    = cfg["sigfox"]["login"]
+        password = cfg["sigfox"]["password"]
+        if not login or not password:
+            return jsonify({"ok": False, "error": "Credenciales Sigfox no configuradas"}), 400
+
+        group_id = request.args.get("groupId", "").strip()
+        contratos = []
+        url    = "https://api.sigfox.com/v2/contract-infos/"
+        params = {"limit": 100}
+        if group_id:
+            params["groupId"] = group_id
+        while url:
+            r = requests.get(url, auth=HTTPBasicAuth(login, password),
+                             params=params, timeout=15)
+            params = {}
+            if r.status_code != 200:
+                return jsonify({"ok": False,
+                                "error": f"Sigfox API error {r.status_code}: {r.text}"}), 502
+            data = r.json()
+            contratos.extend(data.get("data", []))
+            paging   = data.get("paging", {})
+            next_url = paging.get("next")
+            url = next_url if next_url and next_url != url else None
+
+        resultado = [
+            {"id": c["id"],
+             "name": c.get("name", c["id"]),
+             "activTokens": c.get("activTokens", 0),
+             "maxTokens":   c.get("maxTokens",   0)}
+            for c in contratos
+        ]
+        return jsonify({"ok": True, "contratos": resultado})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/api/contratos/<contrato_id>/csv", methods=["GET"])
+@admin_required
+def admin_api_contrato_csv(contrato_id):
+    """Descarga un CSV con los IDs de los dispositivos del contrato."""
+    try:
+        cfg      = cargar_config()
+        login    = cfg["sigfox"]["login"]
+        password = cfg["sigfox"]["password"]
+        if not login or not password:
+            return jsonify({"ok": False, "error": "Credenciales Sigfox no configuradas"}), 400
+
+        device_ids = []
+        url    = f"https://api.sigfox.com/v2/contract-infos/{contrato_id}/devices"
+        params = {"limit": 100}
+        while url:
+            r = requests.get(url, auth=HTTPBasicAuth(login, password),
+                             params=params, timeout=15)
+            params = {}
+            if r.status_code != 200:
+                return jsonify({"ok": False,
+                                "error": f"Sigfox API error {r.status_code}: {r.text}"}), 502
+            data = r.json()
+            for dev in data.get("data", []):
+                did = dev.get("id")
+                if did:
+                    device_ids.append(str(did))
+            paging   = data.get("paging", {})
+            next_url = paging.get("next")
+            url = next_url if next_url and next_url != url else None
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["IDs"])
+        for did in device_ids:
+            writer.writerow([did])
+
+        filename = f"dispositivos_contrato_{contrato_id}.csv"
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/proyectos/<int:pid>/importar-contrato", methods=["POST"])
+@admin_required
+def admin_importar_contrato(pid):
+    """Descarga los dispositivos de un contrato Sigfox y los asigna al proyecto."""
+    try:
+        body        = request.get_json()
+        contrato_id = body.get("contrato_id", "").strip()
+        reemplazar  = bool(body.get("reemplazar", False))
+        if not contrato_id:
+            return jsonify({"ok": False, "error": "contrato_id requerido"}), 400
+
+        cfg  = cargar_config()
+        login    = cfg["sigfox"]["login"]
+        password = cfg["sigfox"]["password"]
+        if not login or not password:
+            return jsonify({"ok": False, "error": "Credenciales Sigfox no configuradas"}), 400
+
+        # Obtener dispositivos del contrato (paginado)
+        device_ids = []
+        url = f"https://api.sigfox.com/v2/contract-infos/{contrato_id}/devices"
+        params = {"limit": 100}
+        while url:
+            r = requests.get(url, auth=HTTPBasicAuth(login, password),
+                             params=params, timeout=15)
+            params = {}  # solo en la primera llamada
+            if r.status_code != 200:
+                return jsonify({"ok": False,
+                                "error": f"Sigfox API error {r.status_code}: {r.text}"}), 502
+            data = r.json()
+            for dev in data.get("data", []):
+                did = dev.get("id")
+                if did:
+                    device_ids.append(str(did))
+            paging   = data.get("paging", {})
+            next_url = paging.get("next")
+            url = next_url if next_url and next_url != url else None
+
+        if not device_ids:
+            return jsonify({"ok": True, "asignados": 0, "nuevos": 0,
+                            "msg": "El contrato no tiene dispositivos con token activo."})
+
+        # Insertar al pool global (ignora duplicados)
+        nuevos = 0
+        for did in device_ids:
+            ok_ins, _ = agregar_dispositivo(did, "")
+            if ok_ins:
+                nuevos += 1
+
+        # Si reemplazar, limpiar asignación actual
+        if reemplazar:
+            asignar_dispositivos_proyecto(pid, [])
+
+        # Asignar al proyecto
+        for did in device_ids:
+            agregar_dispositivo_proyecto(pid, did)
+
+        cache_clear_all()
+        return jsonify({
+            "ok": True,
+            "asignados": len(device_ids),
+            "nuevos_en_pool": nuevos,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/admin/proyectos", methods=["GET"])
 @admin_required
 def admin_proyectos_json():
@@ -1382,6 +1569,172 @@ def verificar_y_enviar_alertas():
         import traceback; traceback.print_exc()
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# AUTO-SYNC DE CONTRATOS SIGFOX
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _fetch_devices_from_contract(login, password, contrato_id):
+    """Descarga todos los IDs de dispositivos de un contrato (paginado)."""
+    device_ids = []
+    url    = f"https://api.sigfox.com/v2/contract-infos/{contrato_id}/devices"
+    params = {"limit": 100}
+    while url:
+        try:
+            r = requests.get(url, auth=HTTPBasicAuth(login, password),
+                             params=params, timeout=15)
+            params = {}
+            if r.status_code != 200:
+                print(f"  [Sync] API error {r.status_code} en contrato {contrato_id}")
+                break
+            data = r.json()
+            for dev in data.get("data", []):
+                did = dev.get("id")
+                if did:
+                    device_ids.append(str(did))
+            paging   = data.get("paging", {})
+            next_url = paging.get("next")
+            url = next_url if next_url and next_url != url else None
+        except Exception as e:
+            print(f"  [Sync] Error paginando contrato {contrato_id}: {e}")
+            break
+    return device_ids
+
+
+def sincronizar_contratos():
+    """
+    Job del scheduler: jala dispositivos de los contratos configurados
+    y los asigna automáticamente a su proyecto.
+    Se ejecuta cada N horas según 'sync_intervalo_horas' en config.
+    """
+    try:
+        cfg = cargar_config()
+        contratos_sync = cfg.get("contratos_sync", [])
+        if not contratos_sync:
+            return
+
+        login    = cfg["sigfox"]["login"]
+        password = cfg["sigfox"]["password"]
+        if not login or not password:
+            print("  [Sync] Sin credenciales Sigfox configuradas")
+            return
+
+        print(f"  [Sync] Iniciando sincronización de {len(contratos_sync)} contrato(s)...")
+        resumen = []
+
+        for item in contratos_sync:
+            contrato_id = item.get("contrato_id", "").strip()
+            proyecto_id = item.get("proyecto_id")  # puede ser None → solo pool global
+            nombre      = item.get("nombre", contrato_id)
+            if not contrato_id:
+                continue
+
+            try:
+                device_ids = _fetch_devices_from_contract(login, password, contrato_id)
+                if not device_ids:
+                    print(f"  [Sync] Contrato {nombre}: sin dispositivos")
+                    resumen.append({"contrato": nombre, "nuevos": 0, "total": 0})
+                    continue
+
+                nuevos = 0
+                for did in device_ids:
+                    ok_ins, _ = agregar_dispositivo(did, "")
+                    if ok_ins:
+                        nuevos += 1
+
+                if proyecto_id:
+                    for did in device_ids:
+                        agregar_dispositivo_proyecto(int(proyecto_id), did)
+
+                resumen.append({
+                    "contrato": nombre,
+                    "total":    len(device_ids),
+                    "nuevos":   nuevos,
+                    "proyecto": proyecto_id,
+                })
+                print(f"  [Sync] {nombre}: {len(device_ids)} dispositivos "
+                      f"({nuevos} nuevos){' → proyecto ' + str(proyecto_id) if proyecto_id else ''}")
+
+            except Exception as e:
+                print(f"  [Sync] Error sincronizando {nombre}: {e}")
+
+        if any(r["nuevos"] > 0 for r in resumen):
+            cache_clear_all()
+
+        # Guardar timestamp de última sincronización
+        cfg["sync_ultimo"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        guardar_config_json(cfg)
+        print(f"  [Sync] Sincronización completada: {resumen}")
+
+    except Exception as e:
+        print(f"  [Sync] Error general: {e}")
+        import traceback; traceback.print_exc()
+
+
+# ── API para gestionar contratos_sync ─────────────────────────────────────────
+
+@app.route("/admin/api/sync-contratos", methods=["GET"])
+@admin_required
+def api_sync_contratos_get():
+    cfg = cargar_config()
+    return jsonify({
+        "ok": True,
+        "contratos": cfg.get("contratos_sync", []),
+        "intervalo_horas": cfg.get("sync_intervalo_horas", 6),
+        "ultimo_sync": cfg.get("sync_ultimo", "Nunca"),
+        "habilitado": cfg.get("sync_habilitado", False),
+    })
+
+
+@app.route("/admin/api/sync-contratos", methods=["POST"])
+@admin_required
+def api_sync_contratos_post():
+    """Guarda la lista de contratos a sincronizar y la configuración."""
+    try:
+        body = request.get_json()
+        cfg  = cargar_config()
+        cfg["contratos_sync"]       = body.get("contratos", [])
+        cfg["sync_intervalo_horas"] = int(body.get("intervalo_horas", 6))
+        cfg["sync_habilitado"]      = bool(body.get("habilitado", False))
+        guardar_config_json(cfg)
+        # Reprogramar el job
+        _reprogramar_sync(cfg)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/admin/api/sync-contratos/ejecutar", methods=["POST"])
+@admin_required
+def api_sync_ejecutar():
+    """Dispara la sincronización manualmente (sin esperar el scheduler)."""
+    import threading
+    threading.Thread(target=sincronizar_contratos, daemon=True).start()
+    return jsonify({"ok": True, "msg": "Sincronización iniciada en segundo plano"})
+
+
+def _reprogramar_sync(cfg):
+    """Reprograma el job de sincronización según el intervalo configurado."""
+    try:
+        horas     = int(cfg.get("sync_intervalo_horas", 6))
+        habilitado = cfg.get("sync_habilitado", False)
+        if habilitado and cfg.get("contratos_sync"):
+            scheduler.reschedule_job(
+                "sync_contratos",
+                trigger="interval",
+                hours=horas,
+            )
+            print(f"  [Sync] Job reprogramado cada {horas}h")
+        else:
+            # Pausar el job si está deshabilitado
+            try:
+                scheduler.pause_job("sync_contratos")
+                print("  [Sync] Job pausado (deshabilitado)")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"  [Sync] Error al reprogramar: {e}")
+
+
 # ── Iniciar scheduler ─────────────────────────────────────────────────────────
 scheduler = BackgroundScheduler(timezone="America/Mexico_City")
 
@@ -1405,6 +1758,25 @@ scheduler.add_job(
     id="verificar_alertas",
     replace_existing=True,
 )
+
+# Auto-sync de contratos (arranca pausado; se activa desde el panel de admin)
+_cfg_init = cargar_config()
+scheduler.add_job(
+    sincronizar_contratos,
+    trigger="interval",
+    hours=int(_cfg_init.get("sync_intervalo_horas", 6)),
+    id="sync_contratos",
+    replace_existing=True,
+    next_run_time=None,  # Pausado por defecto
+)
+# Si ya estaba habilitado en config, activarlo
+if _cfg_init.get("sync_habilitado") and _cfg_init.get("contratos_sync"):
+    try:
+        scheduler.reschedule_job("sync_contratos", trigger="interval",
+                                 hours=int(_cfg_init.get("sync_intervalo_horas", 6)))
+        print(f"  [Sync] Auto-sync activado cada {_cfg_init.get('sync_intervalo_horas',6)}h")
+    except Exception:
+        pass
 
 scheduler.start()
 
