@@ -1603,40 +1603,77 @@ async function importarContrato() {
   if (!contratoId) { toast('⚠️ Selecciona un contrato', false); return; }
 
   const btn = document.getElementById('btn-importar-contrato');
-  btn.disabled = true; btn.textContent = '⏳ Importando...';
   const div = document.getElementById('mpd-contrato-result');
+  btn.disabled = true; btn.textContent = '⏳ Iniciando...';
   div.style.display = 'none';
 
   try {
+    // Lanza el job en background (responde inmediatamente con job_id)
     const res  = await fetch(`/admin/proyectos/${pid}/importar-contrato`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ contrato_id: contratoId, reemplazar })
     });
     const json = await res.json();
-    div.style.display = 'block';
-    if (json.ok) {
-      div.style.background = '#dcfce7'; div.style.color = '#16a34a';
-      div.innerHTML = `✅ <b>${json.asignados}</b> dispositivos asignados al proyecto
-        &nbsp;·&nbsp; Nuevos en pool: ${json.nuevos_en_pool}`;
-      toast(`✅ ${json.asignados} dispositivos importados del contrato`);
-      // Refresca la lista de selección y los proyectos
-      const res2  = await fetch(`/admin/proyectos/${pid}/dispositivos`);
-      const json2 = await res2.json();
-      _mpdTodos = json2.todos || [];
-      renderDevsMod(_mpdTodos);
-      cargarProyectos();
-    } else {
+    if (!json.ok) {
+      div.style.display = 'block';
       div.style.background = '#fee2e2'; div.style.color = '#dc2626';
-      div.textContent = '❌ Error: ' + json.error;
+      div.textContent = '❌ ' + json.error;
       toast('❌ ' + json.error, false);
+      btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
+      return;
     }
+
+    // Polling del estado cada 3 segundos
+    const jobId = json.job_id;
+    div.style.display = 'block';
+    div.style.background = '#eff6ff'; div.style.color = '#1d4ed8';
+    div.textContent = '⏳ Descargando dispositivos del contrato Sigfox...';
+
+    const poll = setInterval(async () => {
+      try {
+        const r2   = await fetch(`/admin/api/import-job/${jobId}`);
+        const job  = await r2.json();
+        if (job.estado === 'pending') {
+          div.textContent = '⏳ ' + (job.msg || 'Procesando...');
+          btn.textContent = '⏳ ' + (job.msg || 'Procesando...');
+        } else if (job.estado === 'ok') {
+          clearInterval(poll);
+          div.style.background = '#dcfce7'; div.style.color = '#16a34a';
+          if (job.asignados === 0) {
+            div.textContent = '⚠️ ' + (job.msg || 'Sin dispositivos en este contrato.');
+          } else {
+            div.innerHTML = `✅ <b>${job.asignados}</b> dispositivos asignados
+              &nbsp;·&nbsp; Nuevos en pool: <b>${job.nuevos_en_pool}</b>`;
+            toast(`✅ ${job.asignados} dispositivos importados del contrato`);
+          }
+          // Refresca lista y tarjetas
+          const r3   = await fetch(`/admin/proyectos/${pid}/dispositivos`);
+          const j3   = await r3.json();
+          _mpdTodos  = j3.todos || [];
+          renderDevsMod(_mpdTodos);
+          cargarProyectos();
+          btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
+        } else {
+          clearInterval(poll);
+          div.style.background = '#fee2e2'; div.style.color = '#dc2626';
+          div.textContent = '❌ Error: ' + job.error;
+          toast('❌ ' + job.error, false);
+          btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
+        }
+      } catch(e) {
+        clearInterval(poll);
+        div.textContent = '❌ Error de red al consultar estado';
+        btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
+      }
+    }, 3000);
+
   } catch(e) {
     div.style.display = 'block';
     div.style.background = '#fee2e2'; div.style.color = '#dc2626';
     div.textContent = '❌ Error de red';
     toast('❌ Error de red', false);
+    btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
   }
-  btn.disabled = false; btn.textContent = '📥 Importar al proyecto';
 }
 
 // ── Viewers del proyecto ──────────────────────────────────────────────────────

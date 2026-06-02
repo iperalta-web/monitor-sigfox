@@ -1069,70 +1069,81 @@ def admin_api_contrato_csv(contrato_id):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@app.route("/admin/proyectos/<int:pid>/importar-contrato", methods=["POST"])
-@admin_required
-def admin_importar_contrato(pid):
-    """Descarga los dispositivos de un contrato Sigfox y los asigna al proyecto."""
-    try:
-        body        = request.get_json()
-        contrato_id = body.get("contrato_id", "").strip()
-        reemplazar  = bool(body.get("reemplazar", False))
-        if not contrato_id:
-            return jsonify({"ok": False, "error": "contrato_id requerido"}), 400
+# ── Jobs de importación asíncrona ─────────────────────────────────────────────
+_import_jobs = {}   # job_id -> {"estado": "pending"|"ok"|"error", ...}
 
-        cfg  = cargar_config()
+def _run_importar_contrato(job_id, pid, contrato_id, reemplazar):
+    """Corre en background: descarga dispositivos y los asigna al proyecto."""
+    try:
+        _import_jobs[job_id] = {"estado": "pending", "msg": "Descargando dispositivos..."}
+        cfg      = cargar_config()
         login    = cfg["sigfox"]["login"]
         password = cfg["sigfox"]["password"]
-        if not login or not password:
-            return jsonify({"ok": False, "error": "Credenciales Sigfox no configuradas"}), 400
 
-        # Obtener dispositivos del contrato (paginado)
-        device_ids = []
-        url = f"https://api.sigfox.com/v2/contract-infos/{contrato_id}/devices"
-        params = {"limit": 100}
-        while url:
-            r = requests.get(url, auth=HTTPBasicAuth(login, password),
-                             params=params, timeout=15)
-            params = {}  # solo en la primera llamada
-            if r.status_code != 200:
-                return jsonify({"ok": False,
-                                "error": f"Sigfox API error {r.status_code}: {r.text}"}), 502
-            data = r.json()
-            for dev in data.get("data", []):
-                did = dev.get("id")
-                if did:
-                    device_ids.append(str(did))
-            paging   = data.get("paging", {})
-            next_url = paging.get("next")
-            url = next_url if next_url and next_url != url else None
+        device_ids = _fetch_devices_from_contract(login, password, contrato_id)
+        _import_jobs[job_id]["msg"] = f"Descargados {len(device_ids)} IDs, guardando..."
 
         if not device_ids:
-            return jsonify({"ok": True, "asignados": 0, "nuevos": 0,
-                            "msg": "El contrato no tiene dispositivos con token activo."})
+            _import_jobs[job_id] = {"estado": "ok", "asignados": 0,
+                                    "nuevos_en_pool": 0,
+                                    "msg": "El contrato no tiene dispositivos."}
+            return
 
-        # Insertar al pool global (ignora duplicados)
         nuevos = 0
         for did in device_ids:
             ok_ins, _ = agregar_dispositivo(did, "")
             if ok_ins:
                 nuevos += 1
 
-        # Si reemplazar, limpiar asignación actual
         if reemplazar:
             asignar_dispositivos_proyecto(pid, [])
 
-        # Asignar al proyecto
         for did in device_ids:
             agregar_dispositivo_proyecto(pid, did)
 
         cache_clear_all()
-        return jsonify({
-            "ok": True,
+        _import_jobs[job_id] = {
+            "estado": "ok",
             "asignados": len(device_ids),
             "nuevos_en_pool": nuevos,
-        })
+        }
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        _import_jobs[job_id] = {"estado": "error", "error": str(e)}
+
+
+@app.route("/admin/proyectos/<int:pid>/importar-contrato", methods=["POST"])
+@admin_required
+def admin_importar_contrato(pid):
+    """Lanza la importación en background y devuelve un job_id para polling."""
+    import threading, uuid
+    body        = request.get_json()
+    contrato_id = body.get("contrato_id", "").strip()
+    reemplazar  = bool(body.get("reemplazar", False))
+    if not contrato_id:
+        return jsonify({"ok": False, "error": "contrato_id requerido"}), 400
+
+    cfg = cargar_config()
+    if not cfg["sigfox"]["login"] or not cfg["sigfox"]["password"]:
+        return jsonify({"ok": False, "error": "Credenciales Sigfox no configuradas"}), 400
+
+    job_id = str(uuid.uuid4())[:8]
+    _import_jobs[job_id] = {"estado": "pending", "msg": "Iniciando..."}
+    threading.Thread(
+        target=_run_importar_contrato,
+        args=(job_id, pid, contrato_id, reemplazar),
+        daemon=True,
+    ).start()
+    return jsonify({"ok": True, "job_id": job_id, "async": True})
+
+
+@app.route("/admin/api/import-job/<job_id>", methods=["GET"])
+@admin_required
+def admin_import_job_status(job_id):
+    """Consulta el estado de un job de importación."""
+    job = _import_jobs.get(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Job no encontrado"}), 404
+    return jsonify({"ok": True, **job})
 
 
 @app.route("/admin/proyectos", methods=["GET"])
