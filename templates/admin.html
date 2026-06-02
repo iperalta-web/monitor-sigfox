@@ -360,17 +360,17 @@
           directamente al proyecto.
         </div>
 
-        <!-- Filtro por Grupo -->
+        <!-- Buscar contrato por nombre -->
         <div class="field" style="margin-bottom:12px">
-          <label>Filtrar por Grupo <span style="font-weight:400;color:var(--muted)">(opcional)</span></label>
+          <label>Buscar contrato por nombre</label>
           <div style="display:flex;gap:8px">
-            <select id="mpd-grupo-sel"
-                    style="flex:1;padding:9px 12px;border:1.5px solid var(--border);
-                           border-radius:8px;font-size:13px;background:#f8fafc">
-              <option value="">— Todos los grupos —</option>
-            </select>
-            <button class="btn btn-sm btn-outline" id="btn-cargar-grupos"
-                    onclick="cargarGrupos()" title="Cargar grupos Sigfox">
+            <input type="text" id="mpd-contrato-search"
+                   placeholder="🔍 ej: xal, iotnet, suntech..."
+                   oninput="filtrarContratos()"
+                   style="flex:1;padding:9px 12px;border:1.5px solid var(--border);
+                          border-radius:8px;font-size:13px;background:#f8fafc">
+            <button class="btn btn-sm btn-outline" id="btn-filtrar-contratos"
+                    onclick="cargarContratos(true)" title="Recargar contratos">
               🔄
             </button>
           </div>
@@ -378,18 +378,12 @@
 
         <!-- Contrato -->
         <div class="field" style="margin-bottom:12px">
-          <label>Contrato Sigfox</label>
-          <div style="display:flex;gap:8px">
-            <select id="mpd-contrato-sel"
-                    style="flex:1;padding:9px 12px;border:1.5px solid var(--border);
-                           border-radius:8px;font-size:13px;background:#f8fafc">
-              <option value="">— Selecciona un contrato —</option>
-            </select>
-            <button class="btn btn-sm btn-outline" id="btn-filtrar-contratos"
-                    onclick="cargarContratos(true)" title="Cargar/filtrar contratos">
-              🔄
-            </button>
-          </div>
+          <label>Contrato Sigfox <span id="mpd-contrato-count" style="font-weight:400;color:var(--muted)"></span></label>
+          <select id="mpd-contrato-sel"
+                  style="width:100%;padding:9px 12px;border:1.5px solid var(--border);
+                         border-radius:8px;font-size:13px;background:#f8fafc">
+            <option value="">— Cargando contratos... —</option>
+          </select>
         </div>
 
         <!-- Info tokens -->
@@ -1449,10 +1443,7 @@ function switchTab(tab) {
       btn.style.fontWeight   = '600';
     }
   });
-  if (tab === 'contrato') {
-    if (!_gruposCargados) cargarGrupos();
-    else if (!_contratosCargados) cargarContratos(true);
-  }
+  if (tab === 'contrato') cargarContratos();
 }
 
 async function subirCSVProyecto() {
@@ -1524,82 +1515,65 @@ async function guardarDevsMod() {
 
 // ── Importar desde contrato Sigfox ───────────────────────────────────────────
 let _contratosCargados = false;
-let _gruposCargados    = false;
-let _contratosData     = [];  // cache de contratos para mostrar info
-
-async function cargarGrupos() {
-  const sel = document.getElementById('mpd-grupo-sel');
-  const btn = document.getElementById('btn-cargar-grupos');
-  btn.disabled = true; btn.textContent = '⏳';
-  sel.innerHTML = '<option value="">⏳ Cargando grupos...</option>';
-  try {
-    const res  = await fetch('/admin/api/grupos');
-    const json = await res.json();
-    if (!json.ok) {
-      sel.innerHTML = `<option value="">❌ ${json.error}</option>`;
-      return;
-    }
-    sel.innerHTML = '<option value="">— Todos los grupos —</option>' +
-      json.grupos.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
-    _gruposCargados = true;
-    // Cargar contratos sin filtro
-    cargarContratos(true);
-  } catch(e) {
-    sel.innerHTML = '<option value="">❌ Error de red</option>';
-  }
-  btn.disabled = false; btn.textContent = '🔄';
-}
+let _contratosData     = [];  // todos los contratos (cache)
 
 async function cargarContratos(force=false) {
   if (_contratosCargados && !force) return;
-  const sel     = document.getElementById('mpd-contrato-sel');
-  const grupId  = document.getElementById('mpd-grupo-sel').value;
-  const btn     = document.getElementById('btn-filtrar-contratos');
+  const sel = document.getElementById('mpd-contrato-sel');
+  const btn = document.getElementById('btn-filtrar-contratos');
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
   sel.innerHTML = '<option value="">⏳ Cargando contratos...</option>';
   document.getElementById('mpd-contrato-info').style.display = 'none';
   try {
-    const qs  = grupId ? `?groupId=${grupId}` : '';
-    const res  = await fetch('/admin/api/contratos' + qs);
+    const res  = await fetch('/admin/api/contratos');
     const json = await res.json();
     if (!json.ok) {
       sel.innerHTML = `<option value="">❌ ${json.error}</option>`;
       return;
     }
     _contratosData = json.contratos;
-    if (!json.contratos.length) {
-      sel.innerHTML = '<option value="">Sin contratos en este grupo</option>';
-      _contratosCargados = true;
-      return;
-    }
-    sel.innerHTML = '<option value="">— Selecciona un contrato —</option>' +
-      json.contratos.map(c =>
-        `<option value="${c.id}" data-activ="${c.activTokens}" data-max="${c.maxTokens}">` +
-        `${c.name} (${c.activTokens} tokens activos)</option>`
-      ).join('');
     _contratosCargados = true;
+    // Aplicar filtro actual si hay texto
+    filtrarContratos();
   } catch(e) {
     sel.innerHTML = '<option value="">❌ Error al conectar con Sigfox API</option>';
   }
   if (btn) { btn.disabled = false; btn.textContent = '🔄'; }
 }
 
+function filtrarContratos() {
+  const q   = (document.getElementById('mpd-contrato-search')?.value || '').toLowerCase().trim();
+  const sel = document.getElementById('mpd-contrato-sel');
+  const cnt = document.getElementById('mpd-contrato-count');
+  if (!_contratosData.length) return;
+
+  const filtrados = q
+    ? _contratosData.filter(c => c.name.toLowerCase().includes(q))
+    : _contratosData;
+
+  if (cnt) cnt.textContent = `(${filtrados.length} de ${_contratosData.length})`;
+
+  sel.innerHTML = `<option value="">— Selecciona un contrato (${filtrados.length}) —</option>` +
+    filtrados.map(c =>
+      `<option value="${c.id}" data-activ="${c.activTokens}" data-max="${c.maxTokens}">` +
+      `${c.name}${c.activTokens > 0 ? ' ✅ ' + c.activTokens + ' activos' : ''}</option>`
+    ).join('');
+  document.getElementById('mpd-contrato-info').style.display = 'none';
+}
+
 // Mostrar info del contrato seleccionado
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('mpd-grupo-sel')?.addEventListener('change', () => {
-    _contratosCargados = false;
-    cargarContratos(true);
-  });
   document.getElementById('mpd-contrato-sel')?.addEventListener('change', () => {
-    const sel = document.getElementById('mpd-contrato-sel');
-    const opt = sel.options[sel.selectedIndex];
+    const sel  = document.getElementById('mpd-contrato-sel');
+    const opt  = sel.options[sel.selectedIndex];
     const info = document.getElementById('mpd-contrato-info');
     if (opt && opt.value) {
       const activ = opt.dataset.activ || '?';
       const max   = opt.dataset.max   || '?';
       info.style.display = 'block';
-      info.innerHTML = `📋 Contrato: <b>${opt.text}</b><br>
-        Tokens activos: <b>${activ}</b> &nbsp;/&nbsp; Máximo: <b>${max}</b>`;
+      info.innerHTML = `📋 <b>${opt.text.split(' ✅')[0]}</b><br>
+        Tokens activos: <b style="color:${+activ>0?'var(--ok)':'var(--muted)'}">
+        ${activ}</b> &nbsp;/&nbsp; Máximo: <b>${max}</b>`;
     } else {
       info.style.display = 'none';
     }
