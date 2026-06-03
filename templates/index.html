@@ -701,36 +701,60 @@ function renderDashboard() {
 }
 
 // ── Pool Banner ───────────────────────────────────────────────────────────────
+function _limiteEfectivo() {
+  /** Devuelve el límite a mostrar: sidebar (si tiene dispositivos) o el del servidor. */
+  const disp   = parseInt(document.getElementById('cfg-disp-cont')?.value)    || 0;
+  const limDia = parseInt(document.getElementById('cfg-limite-diario')?.value) || 140;
+  if (disp > 0 && datos) {
+    return { valor: disp * limDia * (datos.dias_mes || 30), disp, limDia, calculado: true };
+  }
+  if (datos && (datos.dispositivos_contratados || 0) > 0) {
+    const dc = datos.dispositivos_contratados;
+    const ld = datos.limite_diario_dispositivo || limDia;
+    return { valor: dc * ld * (datos.dias_mes || 30), disp: dc, limDia: ld, calculado: true };
+  }
+  return { valor: datos ? datos.limite_global : 5000000, calculado: false };
+}
+
 function renderPoolBanner() {
   const d = datos;
-  const pct = d.pct_global;
+
+  // ── Límite efectivo (sidebar tiene prioridad sobre el servidor) ───────────
+  const lim = _limiteEfectivo();
+  const limiteVal   = lim.valor;
+  const consumidos  = d.total_global;
+  const disponibles = Math.max(limiteVal - consumidos, 0);
+  const pct         = limiteVal > 0 ? +(consumidos / limiteVal * 100).toFixed(2) : 0;
+
+  // Estado recalculado con el nuevo límite
+  const adv  = d.umbral_adv  || 75;
+  const crit = d.umbral_crit || 90;
+  const estadoReal = pct >= crit ? 'CRITICO' : pct >= adv ? 'ADVERTENCIA' : 'OK';
+
   const banner = document.getElementById('pool-banner');
-  banner.className = 'pool-banner ' + estadoClass(d.estado_global);
+  banner.className = 'pool-banner ' + estadoClass(estadoReal);
 
   document.getElementById('pool-pct').textContent = pct + '%';
   document.getElementById('pool-periodo').textContent =
     `Pool de mensajes — ${d.mes_nombre} ${d.year}`;
 
   const estadoTextos = { OK: '✅ NORMAL', ADVERTENCIA: '⚠️ ADVERTENCIA', CRITICO: '🚨 CRÍTICO' };
-  const dot = `<span class="status-dot dot-${d.estado_global.toLowerCase().replace('ó','o')}"></span>`;
-  document.getElementById('pool-estado-label').innerHTML = dot + (estadoTextos[d.estado_global] || d.estado_global);
+  const dot = `<span class="status-dot dot-${estadoReal.toLowerCase().replace('ó','o')}"></span>`;
+  document.getElementById('pool-estado-label').innerHTML = dot + (estadoTextos[estadoReal] || estadoReal);
   document.getElementById('pool-sublabel').textContent = 'del pool mensual consumido';
 
-  document.getElementById('pool-consumidos').textContent  = fmt(d.total_global);
-  document.getElementById('pool-limite').textContent      = fmt(d.limite_global);
-  document.getElementById('pool-disponibles').textContent = fmt(d.disponibles);
+  document.getElementById('pool-consumidos').textContent  = fmt(consumidos);
+  document.getElementById('pool-limite').textContent      = fmt(limiteVal);
+  document.getElementById('pool-disponibles').textContent = fmt(disponibles);
 
-  // Mostrar fórmula si el límite es calculado por dispositivos
-  const formulaEl  = document.getElementById('pool-formula');
-  const limiteLbl  = document.getElementById('pool-limite-lbl');
-  const dispCont   = d.dispositivos_contratados || 0;
-  const limDiaDisp = d.limite_diario_dispositivo || 0;
-  if (formulaEl && dispCont > 0 && limDiaDisp > 0) {
-    formulaEl.style.display = 'block';
-    formulaEl.textContent   = `${dispCont} disp × ${limDiaDisp} msg/d × ${d.dias_mes}d`;
-    if (limiteLbl) limiteLbl.textContent = 'Límite calculado';
-  } else if (formulaEl) {
-    formulaEl.style.display = 'none';
+  // Fórmula
+  const formulaEl = document.getElementById('pool-formula');
+  const limiteLbl = document.getElementById('pool-limite-lbl');
+  if (lim.calculado) {
+    if (formulaEl) { formulaEl.style.display='block'; formulaEl.textContent=`${lim.disp}×${lim.limDia}×${d.dias_mes}d`; }
+    if (limiteLbl)  limiteLbl.textContent = 'Límite calculado';
+  } else {
+    if (formulaEl) formulaEl.style.display = 'none';
     if (limiteLbl) limiteLbl.textContent = 'Límite del pool';
   }
 
@@ -738,9 +762,9 @@ function renderPoolBanner() {
   const fill = Math.min(pct, 100);
   setTimeout(() => { bar.style.width = fill + '%'; bar.textContent = pct + '%'; }, 50);
 
-  document.getElementById('pool-mark-adv').textContent   = `⚠️ ${d.umbral_adv}%`;
-  document.getElementById('pool-mark-crit').textContent  = `🔴 ${d.umbral_crit}%`;
-  document.getElementById('pool-mark-limite').textContent = fmt(d.limite_global);
+  document.getElementById('pool-mark-adv').textContent    = `⚠️ ${adv}%`;
+  document.getElementById('pool-mark-crit').textContent   = `🔴 ${crit}%`;
+  document.getElementById('pool-mark-limite').textContent = fmt(limiteVal);
 }
 
 // ── KPIs ──────────────────────────────────────────────────────────────────────
@@ -749,7 +773,7 @@ function renderKPIs() {
   document.getElementById('kpi-dias').textContent      = `${d.dia_corte} / ${d.dias_mes}`;
   document.getElementById('kpi-dias-sub').textContent  = `${d.dias_restantes} días restantes`;
   document.getElementById('kpi-proyeccion').textContent = fmt(d.proyeccion);
-  const delta = d.proyeccion - d.limite_global;
+  const delta = d.proyeccion - _limiteEfectivo().valor;
   const sub = document.getElementById('kpi-proy-sub');
   sub.textContent = (delta > 0 ? `+${fmt(delta)} sobre el límite` : `${fmt(Math.abs(delta))} bajo el límite`);
   sub.style.color = delta > 0 ? 'var(--crit)' : 'var(--ok)';
@@ -780,8 +804,9 @@ function renderCharts() {
   let acc = 0;
   serie.forEach(v => { acc += (v || 0); acum.push(acc); });
 
-  const ritmoEsperado = labels.map(dia => d.limite_global * dia / d.dias_mes);
-  const limiteLine    = labels.map(() => d.limite_global);
+  const _lef = _limiteEfectivo().valor;
+  const ritmoEsperado = labels.map(dia => _lef * dia / d.dias_mes);
+  const limiteLine    = labels.map(() => _lef);
 
   // Proyección desde día corte
   const proyX = [], proyY = [];
@@ -836,8 +861,8 @@ function renderCharts() {
 
   // Barras diarias
   const barColors = serie.slice(0, d.dia_corte).map(v =>
-    v > d.limite_global / d.dias_mes ? '#dc2626' :
-    v > d.limite_global / d.dias_mes * .8 ? '#f59e0b' : '#3b82f6'
+    v > _limiteEfectivo().valor / d.dias_mes ? '#dc2626' :
+    v > _limiteEfectivo().valor / d.dias_mes * .8 ? '#f59e0b' : '#3b82f6'
   );
 
   if (chartBarras) chartBarras.destroy();
