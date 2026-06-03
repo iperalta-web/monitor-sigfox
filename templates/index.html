@@ -390,7 +390,8 @@
           </div>
           <div class="pool-stat">
             <div class="pool-stat-val" id="pool-limite">—</div>
-            <div class="pool-stat-lbl">Límite del pool</div>
+            <div class="pool-stat-lbl" id="pool-limite-lbl">Límite del pool</div>
+            <div id="pool-formula" style="font-size:10px;color:#60a5fa;margin-top:2px;display:none"></div>
           </div>
           <div class="pool-stat">
             <div class="pool-stat-val" style="color:var(--ok)" id="pool-disponibles">—</div>
@@ -700,6 +701,20 @@ function renderPoolBanner() {
   document.getElementById('pool-consumidos').textContent  = fmt(d.total_global);
   document.getElementById('pool-limite').textContent      = fmt(d.limite_global);
   document.getElementById('pool-disponibles').textContent = fmt(d.disponibles);
+
+  // Mostrar fórmula si el límite es calculado por dispositivos
+  const formulaEl  = document.getElementById('pool-formula');
+  const limiteLbl  = document.getElementById('pool-limite-lbl');
+  const dispCont   = d.dispositivos_contratados || 0;
+  const limDiaDisp = d.limite_diario_dispositivo || 0;
+  if (formulaEl && dispCont > 0 && limDiaDisp > 0) {
+    formulaEl.style.display = 'block';
+    formulaEl.textContent   = `${dispCont} disp × ${limDiaDisp} msg/d × ${d.dias_mes}d`;
+    if (limiteLbl) limiteLbl.textContent = 'Límite calculado';
+  } else if (formulaEl) {
+    formulaEl.style.display = 'none';
+    if (limiteLbl) limiteLbl.textContent = 'Límite del pool';
+  }
 
   const bar = document.getElementById('pool-bar');
   const fill = Math.min(pct, 100);

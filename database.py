@@ -74,15 +74,26 @@ def init_db():
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS proyectos (
-            id            SERIAL PRIMARY KEY,
-            nombre        TEXT NOT NULL,
-            descripcion   TEXT,
-            cliente       TEXT,
-            limite_global INTEGER DEFAULT 5000000,
-            activo        INTEGER DEFAULT 1,
-            creado_en     TEXT
+            id                      SERIAL PRIMARY KEY,
+            nombre                  TEXT NOT NULL,
+            descripcion             TEXT,
+            cliente                 TEXT,
+            limite_global           INTEGER DEFAULT 5000000,
+            activo                  INTEGER DEFAULT 1,
+            creado_en               TEXT,
+            dispositivos_contratados INTEGER DEFAULT 0,
+            limite_diario_dispositivo INTEGER DEFAULT 0
         )
     """)
+    # Migración: agregar columnas si no existen (idempotente)
+    for col, tipo, default in [
+        ("dispositivos_contratados",    "INTEGER", "0"),
+        ("limite_diario_dispositivo",   "INTEGER", "0"),
+    ]:
+        try:
+            cur.execute(f"ALTER TABLE proyectos ADD COLUMN {col} {tipo} DEFAULT {default}")
+        except Exception:
+            pass  # ya existe
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS proyecto_dispositivos (
@@ -379,14 +390,17 @@ def get_proyecto(proyecto_id):
     return dict(row) if row else None
 
 
-def crear_proyecto(nombre, descripcion="", cliente="", limite_global=5000000):
+def crear_proyecto(nombre, descripcion="", cliente="", limite_global=5000000,
+                   dispositivos_contratados=0, limite_diario_dispositivo=0):
     conn = get_db(); cur = conn.cursor()
     try:
         cur.execute("""
-            INSERT INTO proyectos(nombre, descripcion, cliente, limite_global, activo, creado_en)
-            VALUES (%s, %s, %s, %s, 1, %s) RETURNING id
+            INSERT INTO proyectos(nombre, descripcion, cliente, limite_global, activo, creado_en,
+                                  dispositivos_contratados, limite_diario_dispositivo)
+            VALUES (%s, %s, %s, %s, 1, %s, %s, %s) RETURNING id
         """, (nombre.strip(), descripcion.strip(), cliente.strip(),
-              int(limite_global), datetime.now().isoformat()))
+              int(limite_global), datetime.now().isoformat(),
+              int(dispositivos_contratados), int(limite_diario_dispositivo)))
         pid = cur.fetchone()["id"]
         conn.commit()
         return True, pid
@@ -398,13 +412,18 @@ def crear_proyecto(nombre, descripcion="", cliente="", limite_global=5000000):
 
 
 def actualizar_proyecto(proyecto_id, nombre=None, descripcion=None,
-                        cliente=None, limite_global=None, activo=None):
+                        cliente=None, limite_global=None, activo=None,
+                        dispositivos_contratados=None, limite_diario_dispositivo=None):
     conn = get_db(); cur = conn.cursor()
     if nombre        is not None: cur.execute("UPDATE proyectos SET nombre=%s        WHERE id=%s", (nombre,        proyecto_id))
     if descripcion   is not None: cur.execute("UPDATE proyectos SET descripcion=%s   WHERE id=%s", (descripcion,   proyecto_id))
     if cliente       is not None: cur.execute("UPDATE proyectos SET cliente=%s       WHERE id=%s", (cliente,       proyecto_id))
     if limite_global is not None: cur.execute("UPDATE proyectos SET limite_global=%s WHERE id=%s", (int(limite_global), proyecto_id))
     if activo        is not None: cur.execute("UPDATE proyectos SET activo=%s        WHERE id=%s", (activo,        proyecto_id))
+    if dispositivos_contratados  is not None:
+        cur.execute("UPDATE proyectos SET dispositivos_contratados=%s  WHERE id=%s", (int(dispositivos_contratados),  proyecto_id))
+    if limite_diario_dispositivo is not None:
+        cur.execute("UPDATE proyectos SET limite_diario_dispositivo=%s WHERE id=%s", (int(limite_diario_dispositivo), proyecto_id))
     conn.commit(); cur.close(); conn.close()
 
 

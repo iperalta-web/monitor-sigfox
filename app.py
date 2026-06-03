@@ -269,9 +269,20 @@ def obtener_datos(year, month, proyecto_id=None, force=False):
            if proyecto_id else get_ids_dispositivos())
 
     # Límite global: del proyecto si existe, sino del config global
+    # Si el proyecto tiene dispositivos_contratados > 0, se calcula automáticamente
     if proyecto_id:
         p = get_proyecto(proyecto_id)
-        limite_global = p["limite_global"] if p else cfg["limites"]["global_mensual"]
+        if p:
+            disp_cont  = p.get("dispositivos_contratados", 0) or 0
+            lim_diario = p.get("limite_diario_dispositivo", 0) or 0
+            if disp_cont > 0:
+                # Usa el límite diario del proyecto; si es 0 usa el global
+                lim_dia = lim_diario if lim_diario > 0 else cfg["limites"]["diario_default"]
+                limite_global = disp_cont * lim_dia * dias_mes
+            else:
+                limite_global = p["limite_global"]
+        else:
+            limite_global = cfg["limites"]["global_mensual"]
     else:
         limite_global = cfg["limites"]["global_mensual"]
 
@@ -324,11 +335,22 @@ def obtener_datos(year, month, proyecto_id=None, force=False):
             if v is not None:
                 serie_global[d] += v
 
+    # Info del modo de límite (para mostrarlo en el dashboard)
+    _disp_cont = 0; _lim_dia_usado = 0
+    if proyecto_id:
+        _p = get_proyecto(proyecto_id)
+        if _p:
+            _disp_cont = _p.get("dispositivos_contratados", 0) or 0
+            _lim_dia_raw = _p.get("limite_diario_dispositivo", 0) or 0
+            _lim_dia_usado = _lim_dia_raw if _lim_dia_raw > 0 else cfg["limites"]["diario_default"]
+
     resultado = {
         "year": year, "month": month,
         "mes_nombre": calendar.month_name[int(month)],
         "dia_corte": dia_corte, "dias_mes": dias_mes,
         "total_global": total_global, "limite_global": limite_global,
+        "dispositivos_contratados": _disp_cont,
+        "limite_diario_dispositivo": _lim_dia_usado,
         "pct_global": pct_global, "pct_ritmo": pct_ritmo,
         "proyeccion": proyeccion, "dias_restantes": dias_rest,
         "ritmo_necesario": ritmo_nec,
@@ -800,10 +822,12 @@ def admin_crear_proyecto():
     try:
         body = request.get_json()
         ok, result = crear_proyecto(
-            nombre        = body.get("nombre", "").strip(),
-            descripcion   = body.get("descripcion", ""),
-            cliente       = body.get("cliente", ""),
-            limite_global = int(body.get("limite_global", 5000000)),
+            nombre                   = body.get("nombre", "").strip(),
+            descripcion              = body.get("descripcion", ""),
+            cliente                  = body.get("cliente", ""),
+            limite_global            = int(body.get("limite_global", 5000000)),
+            dispositivos_contratados = int(body.get("dispositivos_contratados", 0) or 0),
+            limite_diario_dispositivo= int(body.get("limite_diario_dispositivo", 0) or 0),
         )
         if ok:
             return jsonify({"ok": True, "id": result})
@@ -819,11 +843,13 @@ def admin_editar_proyecto(pid):
         body = request.get_json()
         actualizar_proyecto(
             pid,
-            nombre        = body.get("nombre"),
-            descripcion   = body.get("descripcion"),
-            cliente       = body.get("cliente"),
-            limite_global = body.get("limite_global"),
-            activo        = body.get("activo"),
+            nombre                   = body.get("nombre"),
+            descripcion              = body.get("descripcion"),
+            cliente                  = body.get("cliente"),
+            limite_global            = body.get("limite_global"),
+            activo                   = body.get("activo"),
+            dispositivos_contratados = body.get("dispositivos_contratados"),
+            limite_diario_dispositivo= body.get("limite_diario_dispositivo"),
         )
         cache_clear_all()
         return jsonify({"ok": True})
@@ -1154,10 +1180,31 @@ def admin_import_job_status(job_id):
 @admin_required
 def admin_proyectos_json():
     try:
+        import calendar as _cal
+        hoy     = date.today()
+        dias_mes = _cal.monthrange(hoy.year, hoy.month)[1]
+        cfg_def = cargar_config()
+        lim_dia_global = cfg_def["limites"]["diario_default"]
+
         proyectos = listar_proyectos(solo_activos=False)
         for p in proyectos:
             p["num_dispositivos"] = len(get_dispositivos_proyecto(p["id"]))
             p["num_usuarios"]     = len(get_usuarios_de_proyecto(p["id"]))
+            # Campos nuevos con fallback a 0
+            p.setdefault("dispositivos_contratados",    0)
+            p.setdefault("limite_diario_dispositivo",   0)
+            # Calcular límite efectivo del mes actual
+            disp_cont  = p["dispositivos_contratados"] or 0
+            lim_diario = p["limite_diario_dispositivo"] or 0
+            if disp_cont > 0:
+                lim_dia = lim_diario if lim_diario > 0 else lim_dia_global
+                p["limite_efectivo"] = disp_cont * lim_dia * dias_mes
+                p["limite_modo"]     = "calculado"
+                p["limite_diario_usado"] = lim_dia
+            else:
+                p["limite_efectivo"] = p["limite_global"]
+                p["limite_modo"]     = "fijo"
+                p["limite_diario_usado"] = 0
         return jsonify({"ok": True, "proyectos": proyectos})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

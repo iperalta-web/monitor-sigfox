@@ -261,9 +261,48 @@
           <label>Descripción</label>
           <input type="text" id="proj-desc" placeholder="Descripción breve (opcional)">
         </div>
+
+        <!-- ── Límite por dispositivos (nuevo) ── -->
+        <div class="field" style="grid-column:1/-1">
+          <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 16px">
+            <div style="font-weight:700;font-size:13px;margin-bottom:10px;color:#1e40af">
+              📡 Cálculo automático de límite mensual
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+              <div class="field" style="margin:0">
+                <label style="font-size:12px">Dispositivos contratados</label>
+                <input type="number" id="proj-disp-cont" value="0" min="0" step="1"
+                       oninput="actualizarFormulaProyecto()"
+                       placeholder="ej: 1000"
+                       style="padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;
+                              font-size:13px;width:100%;box-sizing:border-box">
+              </div>
+              <div class="field" style="margin:0">
+                <label style="font-size:12px">Msgs/día por dispositivo</label>
+                <input type="number" id="proj-lim-dia" value="140" min="1" step="1"
+                       oninput="actualizarFormulaProyecto()"
+                       placeholder="ej: 140"
+                       style="padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;
+                              font-size:13px;width:100%;box-sizing:border-box">
+              </div>
+            </div>
+            <!-- Fórmula visual -->
+            <div id="proj-formula-preview"
+                 style="font-size:13px;font-weight:600;color:#1d4ed8;
+                        background:white;border-radius:8px;padding:8px 12px;
+                        border:1px solid #bfdbfe;text-align:center">
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px">
+              💡 Si pones 0 dispositivos, se usará el límite fijo de abajo.
+              El límite se recalcula automáticamente cada mes según los días.
+            </div>
+          </div>
+        </div>
+
         <div class="field">
-          <label>Límite global mensual (mensajes)</label>
-          <input type="number" id="proj-limite" value="5000000" step="100000" min="1000">
+          <label>Límite global mensual fijo (si no usas cálculo automático)</label>
+          <input type="number" id="proj-limite" value="5000000" step="100000" min="1000"
+                 oninput="actualizarFormulaProyecto()">
         </div>
         <div class="field">
           <label>Estado</label>
@@ -1331,14 +1370,21 @@ async function cargarProyectos() {
             <span style="font-size:12px;background:#f1f5f9;padding:4px 10px;border-radius:999px">
               👥 ${p.num_usuarios} viewers
             </span>
-            <span style="font-size:12px;background:#f1f5f9;padding:4px 10px;border-radius:999px">
-              🎯 ${(p.limite_global/1000000).toFixed(1)}M msgs
+            <span style="font-size:12px;padding:4px 10px;border-radius:999px;
+                          background:${p.limite_modo==='calculado'?'#dbeafe':'#f1f5f9'};
+                          color:${p.limite_modo==='calculado'?'#1d4ed8':'inherit'}"
+                  title="${p.limite_modo==='calculado'
+                    ? p.dispositivos_contratados+' disp × '+p.limite_diario_usado+' msg/día × días del mes'
+                    : 'Límite fijo'}">
+              🎯 ${p.limite_modo==='calculado'
+                ? p.dispositivos_contratados+'×'+p.limite_diario_usado+'×d'
+                : (p.limite_efectivo/1000000).toFixed(1)+'M'}
             </span>
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm"
-                  onclick="abrirModalProyecto(${p.id},'${esc(p.nombre)}','${esc(p.descripcion||'')}','${esc(p.cliente||'')}',${p.limite_global},${p.activo})">
+                  onclick="abrirModalProyecto(${p.id},'${esc(p.nombre)}','${esc(p.descripcion||'')}','${esc(p.cliente||'')}',${p.limite_global},${p.activo},${p.dispositivos_contratados||0},${p.limite_diario_dispositivo||0})">
             ✏️ Editar
           </button>
           <button class="btn btn-sm" style="background:#0ea5e9;color:white;border:none"
@@ -1360,16 +1406,49 @@ async function cargarProyectos() {
 
 function esc(s) { return String(s).replace(/'/g,"&#39;").replace(/"/g,'&quot;'); }
 
-function abrirModalProyecto(id='',nombre='',desc='',cliente='',limite=5000000,activo=1) {
-  document.getElementById('proj-id').value      = id;
-  document.getElementById('proj-nombre').value  = nombre;
-  document.getElementById('proj-desc').value    = desc;
-  document.getElementById('proj-cliente').value = cliente;
-  document.getElementById('proj-limite').value  = limite;
-  document.getElementById('proj-activo').value  = activo;
+function abrirModalProyecto(id='',nombre='',desc='',cliente='',limite=5000000,activo=1,dispCont=0,limDia=0) {
+  document.getElementById('proj-id').value        = id;
+  document.getElementById('proj-nombre').value    = nombre;
+  document.getElementById('proj-desc').value      = desc;
+  document.getElementById('proj-cliente').value   = cliente;
+  document.getElementById('proj-limite').value    = limite;
+  document.getElementById('proj-activo').value    = activo;
+  document.getElementById('proj-disp-cont').value = dispCont || 0;
+  document.getElementById('proj-lim-dia').value   = limDia   || 140;
   document.getElementById('modal-proyecto-titulo').textContent =
     id ? '✏️ Editar proyecto' : '➕ Nuevo proyecto';
+  actualizarFormulaProyecto();
   document.getElementById('modal-proyecto').classList.add('show');
+}
+
+function actualizarFormulaProyecto() {
+  const disp    = parseInt(document.getElementById('proj-disp-cont')?.value) || 0;
+  const limDia  = parseInt(document.getElementById('proj-lim-dia')?.value)   || 140;
+  const fijo    = parseInt(document.getElementById('proj-limite')?.value)    || 5000000;
+  const preview = document.getElementById('proj-formula-preview');
+  if (!preview) return;
+
+  // Días del mes actual y el próximo para mostrar el rango
+  const hoy    = new Date();
+  const diasM  = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0).getDate();
+  const mesNom = hoy.toLocaleString('es-MX', { month: 'long' });
+
+  if (disp > 0) {
+    const total = disp * limDia * diasM;
+    const fmt   = n => n.toLocaleString('es-MX');
+    preview.innerHTML =
+      `<span style="color:#64748b">${fmt(disp)} disp</span>` +
+      ` <span style="color:#94a3b8">×</span> ` +
+      `<span style="color:#64748b">${fmt(limDia)} msg/día</span>` +
+      ` <span style="color:#94a3b8">×</span> ` +
+      `<span style="color:#64748b">${diasM} días (${mesNom})</span>` +
+      ` <span style="color:#94a3b8">=</span> ` +
+      `<span style="font-size:15px;color:#1d4ed8;font-weight:800">${fmt(total)} msgs/mes</span>`;
+  } else {
+    preview.innerHTML =
+      `<span style="color:#94a3b8">Sin cálculo automático — Límite fijo: </span>` +
+      `<b style="color:#475569">${(fijo/1000000).toFixed(2)}M msgs/mes</b>`;
+  }
 }
 function cerrarModalProyecto() {
   document.getElementById('modal-proyecto').classList.remove('show');
@@ -1381,10 +1460,12 @@ async function guardarProyecto() {
   if (!nombre) { toast('⚠️ El nombre es obligatorio', false); return; }
   const body = {
     nombre,
-    descripcion:   document.getElementById('proj-desc').value.trim(),
-    cliente:       document.getElementById('proj-cliente').value.trim(),
-    limite_global: +document.getElementById('proj-limite').value,
-    activo:        +document.getElementById('proj-activo').value,
+    descripcion:               document.getElementById('proj-desc').value.trim(),
+    cliente:                   document.getElementById('proj-cliente').value.trim(),
+    limite_global:             +document.getElementById('proj-limite').value,
+    activo:                    +document.getElementById('proj-activo').value,
+    dispositivos_contratados:  +document.getElementById('proj-disp-cont').value || 0,
+    limite_diario_dispositivo: +document.getElementById('proj-lim-dia').value   || 0,
   };
   const url = id ? `/admin/proyectos/${id}/editar` : '/admin/proyectos/crear';
   const res  = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'},
