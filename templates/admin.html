@@ -286,6 +286,13 @@
                               font-size:13px;width:100%;box-sizing:border-box">
               </div>
             </div>
+            <div style="margin-top:10px">
+              <label style="font-weight:600;font-size:13px">📊 Modo de monitoreo</label>
+              <select id="proj-modo" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;margin-top:4px">
+                <option value="pool">🏊 Pool — total mensual vs límite</option>
+                <option value="dispositivo">📡 Por dispositivo — excedentes diarios</option>
+              </select>
+            </div>
             <!-- Fórmula visual -->
             <div id="proj-formula-preview"
                  style="font-size:13px;font-weight:600;color:#1d4ed8;
@@ -1384,7 +1391,7 @@ async function cargarProyectos() {
         </div>
         <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm"
-                  onclick="abrirModalProyecto(${p.id},'${esc(p.nombre)}','${esc(p.descripcion||'')}','${esc(p.cliente||'')}',${p.limite_global},${p.activo},${p.dispositivos_contratados||0},${p.limite_diario_dispositivo||0})">
+                  onclick="abrirModalProyecto(${p.id},'${esc(p.nombre)}','${esc(p.descripcion||'')}','${esc(p.cliente||'')}',${p.limite_global},${p.activo},${p.dispositivos_contratados||0},${p.limite_diario_dispositivo||0},'${p.modo_calculo||'pool'}')">
             ✏️ Editar
           </button>
           <button class="btn btn-sm" style="background:#0ea5e9;color:white;border:none"
@@ -1415,6 +1422,7 @@ function abrirModalProyecto(id='',nombre='',desc='',cliente='',limite=5000000,ac
   document.getElementById('proj-activo').value    = activo;
   document.getElementById('proj-disp-cont').value = dispCont || 0;
   document.getElementById('proj-lim-dia').value   = limDia   || 140;
+  document.getElementById('proj-modo').value = arguments[8] || 'pool';
   document.getElementById('modal-proyecto-titulo').textContent =
     id ? '✏️ Editar proyecto' : '➕ Nuevo proyecto';
   actualizarFormulaProyecto();
@@ -1466,6 +1474,7 @@ async function guardarProyecto() {
     activo:                    +document.getElementById('proj-activo').value,
     dispositivos_contratados:  +document.getElementById('proj-disp-cont').value || 0,
     limite_diario_dispositivo: +document.getElementById('proj-lim-dia').value   || 0,
+    modo_calculo: document.getElementById('proj-modo').value,
   };
   const url = id ? `/admin/proyectos/${id}/editar` : '/admin/proyectos/crear';
   const res  = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'},

@@ -95,6 +95,13 @@ def init_db():
         except Exception:
             pass  # ya existe
 
+    for col, defn in [("modo_calculo", "VARCHAR(20) DEFAULT 'pool'")]:
+        try:
+            cur.execute(f"ALTER TABLE proyectos ADD COLUMN {col} {defn}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS proyecto_dispositivos (
             proyecto_id  INTEGER REFERENCES proyectos(id) ON DELETE CASCADE,
@@ -391,16 +398,17 @@ def get_proyecto(proyecto_id):
 
 
 def crear_proyecto(nombre, descripcion="", cliente="", limite_global=5000000,
-                   dispositivos_contratados=0, limite_diario_dispositivo=0):
+                   dispositivos_contratados=0, limite_diario_dispositivo=0,
+                   modo_calculo='pool'):
     conn = get_db(); cur = conn.cursor()
     try:
         cur.execute("""
             INSERT INTO proyectos(nombre, descripcion, cliente, limite_global, activo, creado_en,
-                                  dispositivos_contratados, limite_diario_dispositivo)
-            VALUES (%s, %s, %s, %s, 1, %s, %s, %s) RETURNING id
+                                  dispositivos_contratados, limite_diario_dispositivo, modo_calculo)
+            VALUES (%s, %s, %s, %s, 1, %s, %s, %s, %s) RETURNING id
         """, (nombre.strip(), descripcion.strip(), cliente.strip(),
               int(limite_global), datetime.now().isoformat(),
-              int(dispositivos_contratados), int(limite_diario_dispositivo)))
+              int(dispositivos_contratados), int(limite_diario_dispositivo), modo_calculo))
         pid = cur.fetchone()["id"]
         conn.commit()
         return True, pid
@@ -413,7 +421,8 @@ def crear_proyecto(nombre, descripcion="", cliente="", limite_global=5000000,
 
 def actualizar_proyecto(proyecto_id, nombre=None, descripcion=None,
                         cliente=None, limite_global=None, activo=None,
-                        dispositivos_contratados=None, limite_diario_dispositivo=None):
+                        dispositivos_contratados=None, limite_diario_dispositivo=None,
+                        modo_calculo=None):
     conn = get_db(); cur = conn.cursor()
     if nombre        is not None: cur.execute("UPDATE proyectos SET nombre=%s        WHERE id=%s", (nombre,        proyecto_id))
     if descripcion   is not None: cur.execute("UPDATE proyectos SET descripcion=%s   WHERE id=%s", (descripcion,   proyecto_id))
@@ -424,6 +433,8 @@ def actualizar_proyecto(proyecto_id, nombre=None, descripcion=None,
         cur.execute("UPDATE proyectos SET dispositivos_contratados=%s  WHERE id=%s", (int(dispositivos_contratados),  proyecto_id))
     if limite_diario_dispositivo is not None:
         cur.execute("UPDATE proyectos SET limite_diario_dispositivo=%s WHERE id=%s", (int(limite_diario_dispositivo), proyecto_id))
+    if modo_calculo is not None:
+        cur.execute("UPDATE proyectos SET modo_calculo=%s WHERE id=%s", (modo_calculo, proyecto_id))
     conn.commit(); cur.close(); conn.close()
 
 

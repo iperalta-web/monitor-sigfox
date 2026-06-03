@@ -272,6 +272,7 @@ def obtener_datos(year, month, proyecto_id=None, force=False):
             return cached
 
     cfg = cargar_config()
+    p = None  # proyecto actual (se asigna más abajo si proyecto_id es válido)
     ids = (get_dispositivos_proyecto(proyecto_id)
            if proyecto_id else get_ids_dispositivos())
 
@@ -348,6 +349,28 @@ def obtener_datos(year, month, proyecto_id=None, force=False):
         })
     dispositivos.sort(key=lambda x: x["total"], reverse=True)
 
+    # ── Excedentes por dispositivo ─────────────────────────────────────────────
+    lim_dia_exc = 0
+    if proyecto_id and p:
+        lim_dia_exc = p.get("limite_diario_dispositivo", 0) or 0
+    if lim_dia_exc <= 0:
+        lim_dia_exc = cfg["limites"]["diario_default"]
+
+    excesos_total          = 0
+    dispositivos_excediendo = 0
+    excesos_por_dia        = [0.0] * dias_mes
+
+    for rec in registros:
+        dev_exc = 0
+        for d, v in enumerate(rec["diarios"]):
+            if v is not None and v > lim_dia_exc:
+                exc = v - lim_dia_exc
+                excesos_total   += exc
+                excesos_por_dia[d] += exc
+                dev_exc         += exc
+        if dev_exc > 0:
+            dispositivos_excediendo += 1
+
     serie_global = [0.0] * dias_mes
     for rec in registros:
         for d, v in enumerate(rec["diarios"]):
@@ -383,6 +406,11 @@ def obtener_datos(year, month, proyecto_id=None, force=False):
         "num_advertencias":sum(1 for d in dispositivos if d["estado"] == "ADVERTENCIA"),
         "num_ok":          sum(1 for d in dispositivos if d["estado"] == "OK"),
         "actualizado": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "modo_calculo":             p.get("modo_calculo", "pool") if (proyecto_id and p) else "pool",
+        "limite_diario_exc":        lim_dia_exc,
+        "excesos_total":            excesos_total,
+        "dispositivos_excediendo":  dispositivos_excediendo,
+        "excesos_por_dia":          excesos_por_dia,
     }
     cache_set(cache_key, resultado)
     return resultado
@@ -497,6 +525,8 @@ def _make_placeholder(year, month):
         "num_dispositivos": 0, "num_criticos": 0,
         "num_advertencias": 0, "num_ok": 0,
         "actualizado": "Cargando...", "actualizando": True,
+        "modo_calculo": "pool", "limite_diario_exc": 140,
+        "excesos_total": 0, "dispositivos_excediendo": 0, "excesos_por_dia": [],
     }
 
 
@@ -878,6 +908,7 @@ def admin_editar_proyecto(pid):
             activo                   = body.get("activo"),
             dispositivos_contratados = body.get("dispositivos_contratados"),
             limite_diario_dispositivo= body.get("limite_diario_dispositivo"),
+            modo_calculo             = body.get("modo_calculo"),
         )
         cache_clear_all()
         return jsonify({"ok": True})
@@ -1221,6 +1252,7 @@ def admin_proyectos_json():
             # Campos nuevos con fallback a 0
             p.setdefault("dispositivos_contratados",    0)
             p.setdefault("limite_diario_dispositivo",   0)
+            p.setdefault("modo_calculo",                "pool")
             # Calcular límite efectivo del mes actual
             disp_cont  = p["dispositivos_contratados"] or 0
             lim_diario = p["limite_diario_dispositivo"] or 0

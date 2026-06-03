@@ -434,6 +434,26 @@
       </div>
     </div>
 
+    <!-- Panel excedentes — solo visible en modo dispositivo -->
+    <div id="panel-excedentes" class="card" style="display:none;margin-bottom:16px;border-left:4px solid #f97316">
+      <div class="section-title" style="color:#f97316">⚠️ Excedentes por dispositivo — <span id="exc-mes-titulo"></span></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:12px 0">
+        <div style="text-align:center">
+          <div style="font-size:11px;color:#6b7280;text-transform:uppercase;font-weight:600">Dispositivos excediendo</div>
+          <div style="font-size:28px;font-weight:800;color:#ef4444" id="exc-devs-count">0</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:11px;color:#6b7280;text-transform:uppercase;font-weight:600">Msgs excedentes totales</div>
+          <div style="font-size:28px;font-weight:800;color:#f97316" id="exc-total-msgs">0</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:11px;color:#6b7280;text-transform:uppercase;font-weight:600">Límite diario/dispositivo</div>
+          <div style="font-size:28px;font-weight:800;color:#6b7280" id="exc-lim-dia">140</div>
+        </div>
+      </div>
+      <canvas id="chart-excedentes" height="120"></canvas>
+    </div>
+
     <!-- KPIs -->
     <div class="kpi-grid" id="kpi-grid">
       <div class="kpi-card">
@@ -507,6 +527,7 @@
                 <th onclick="sortTabla('promedio_dia')">Prom/día <span class="sort-arrow">↕</span></th>
                 <th onclick="sortTabla('limite_dia')">Límite/día <span class="sort-arrow">↕</span></th>
                 <th onclick="sortTabla('dias_datos')">Días con datos <span class="sort-arrow">↕</span></th>
+                <th id="th-excedente" style="display:none">Excedente</th>
               </tr>
             </thead>
             <tbody id="tbody-devs"></tbody>
@@ -720,6 +741,7 @@ function renderDashboard() {
   renderCharts();
   renderTabla();
   renderInfo();
+  renderExcedentes();
 }
 
 // ── Pool Banner ───────────────────────────────────────────────────────────────
@@ -942,12 +964,27 @@ function renderTabla() {
     return sortAsc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
   });
 
+  const modoDisp = datos && datos.modo_calculo === 'dispositivo';
+  const thExc = document.getElementById('th-excedente');
+  if (thExc) thExc.style.display = modoDisp ? '' : 'none';
+
+  const limDiaExc = (datos && datos.limite_diario_exc) || 140;
+
   const tbody = document.getElementById('tbody-devs');
   tbody.innerHTML = devs.map(d => {
     const cls = { CRITICO: 'crit', ADVERTENCIA: 'adv', OK: 'ok' }[d.estado] || 'ok';
     const badgeTxt = { CRITICO: '🔴 Crítico', ADVERTENCIA: '🟡 Advertencia', OK: '🟢 OK' }[d.estado];
     const barW = Math.min(d.pct, 100);
     const barClr = d.pct >= 95 ? '#dc2626' : d.pct >= 75 ? '#f59e0b' : '#16a34a';
+    let excedente = 0;
+    if (modoDisp && d.diarios) {
+      for (const v of d.diarios) {
+        if (v != null && v > limDiaExc) excedente += v - limDiaExc;
+      }
+    }
+    const excCell = modoDisp
+      ? `<td style="text-align:right;color:${excedente>0?'#f97316':'#16a34a'};font-weight:700">${excedente>0?'+'+fmt(excedente):'—'}</td>`
+      : '';
     return `<tr>
       <td><span class="badge badge-${cls}">${badgeTxt}</span></td>
       <td style="font-family:monospace;font-weight:600">${d.id}</td>
@@ -963,6 +1000,7 @@ function renderTabla() {
       <td style="text-align:right">${d.promedio_dia}</td>
       <td style="text-align:right">${fmt(d.limite_dia)}</td>
       <td style="text-align:right">${d.dias_datos}</td>
+      ${excCell}
     </tr>`;
   }).join('');
 
@@ -1001,6 +1039,47 @@ function sortTabla(key) {
 }
 
 // ── Info sidebar ──────────────────────────────────────────────────────────────
+let _chartExc = null;
+function renderExcedentes() {
+  const panel = document.getElementById('panel-excedentes');
+  if (!datos || datos.modo_calculo !== 'dispositivo') {
+    if (panel) panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  const fmt = n => (n||0).toLocaleString('es-MX');
+  document.getElementById('exc-mes-titulo').textContent  = (datos.mes_nombre||'') + ' ' + (datos.year||'');
+  document.getElementById('exc-devs-count').textContent  = datos.dispositivos_excediendo || 0;
+  document.getElementById('exc-total-msgs').textContent  = fmt(datos.excesos_total);
+  document.getElementById('exc-lim-dia').textContent     = datos.limite_diario_exc || 140;
+
+  // Chart excedentes por día
+  const labels = Array.from({length: datos.dias_mes||30}, (_,i) => i+1);
+  const vals   = datos.excesos_por_dia || [];
+  if (_chartExc) _chartExc.destroy();
+  _chartExc = new Chart(document.getElementById('chart-excedentes'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Msgs excedentes',
+        data: vals,
+        backgroundColor: 'rgba(249,115,22,0.7)',
+        borderColor: '#f97316',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { font: { size: 10 } } },
+        y: { beginAtZero: true, ticks: { font: { size: 10 } } }
+      }
+    }
+  });
+}
+
 function renderInfo() {
   if (!datos) return;
   document.getElementById('info-actualizado').textContent = '🕐 ' + datos.actualizado;
