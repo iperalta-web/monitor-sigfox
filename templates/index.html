@@ -436,22 +436,8 @@
 
     <!-- Panel excedentes — solo visible en modo dispositivo -->
     <div id="panel-excedentes" class="card" style="display:none;margin-bottom:16px;border-left:4px solid #f97316">
-      <div class="section-title" style="color:#f97316">⚠️ Excedentes por dispositivo — <span id="exc-mes-titulo"></span></div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:12px 0">
-        <div style="text-align:center">
-          <div style="font-size:11px;color:#6b7280;text-transform:uppercase;font-weight:600">Dispositivos excediendo</div>
-          <div style="font-size:28px;font-weight:800;color:#ef4444" id="exc-devs-count">0</div>
-        </div>
-        <div style="text-align:center">
-          <div style="font-size:11px;color:#6b7280;text-transform:uppercase;font-weight:600">Msgs excedentes totales</div>
-          <div style="font-size:28px;font-weight:800;color:#f97316" id="exc-total-msgs">0</div>
-        </div>
-        <div style="text-align:center">
-          <div style="font-size:11px;color:#6b7280;text-transform:uppercase;font-weight:600">Límite diario/dispositivo</div>
-          <div style="font-size:28px;font-weight:800;color:#6b7280" id="exc-lim-dia">140</div>
-        </div>
-      </div>
-      <canvas id="chart-excedentes" height="120"></canvas>
+      <div class="section-title" style="color:#f97316">📊 Excedentes diarios — <span id="exc-mes-titulo"></span></div>
+      <canvas id="chart-excedentes" height="100"></canvas>
     </div>
 
     <!-- KPIs -->
@@ -763,14 +749,57 @@ function _limiteEfectivo() {
 function renderPoolBanner() {
   const d = datos;
 
-  // ── Límite efectivo (sidebar tiene prioridad sobre el servidor) ───────────
+  // ── Modo Dispositivo: reemplaza el banner con métricas de excedentes ───────
+  if (d.modo_calculo === 'dispositivo') {
+    const excTot    = d.excesos_total            || 0;
+    const excDevs   = d.dispositivos_excediendo  || 0;
+    const transmite = d.num_dispositivos          || 0;
+    const limDia    = d.limite_diario_exc         || 140;
+    const hasExc    = excTot > 0;
+
+    const banner = document.getElementById('pool-banner');
+    banner.className = 'pool-banner ' + (hasExc ? (excDevs > transmite * 0.5 ? 'crit' : 'adv') : 'ok');
+
+    document.getElementById('pool-periodo').textContent =
+      `📡 Excedentes por dispositivo — ${d.mes_nombre} ${d.year}`;
+    document.getElementById('pool-pct').textContent = fmt(excTot);
+    document.getElementById('pool-estado-label').innerHTML =
+      hasExc ? `<span style="color:var(--adv)">⚠️ HAY EXCEDENTES</span>`
+             : `<span style="color:var(--ok)">✅ SIN EXCEDENTES</span>`;
+    document.getElementById('pool-sublabel').textContent = 'mensajes sobre el límite diario';
+
+    document.getElementById('pool-consumidos').textContent  = fmt(excDevs);
+    document.getElementById('pool-limite').textContent      = fmt(transmite);
+    document.getElementById('pool-disponibles').textContent = fmt(limDia);
+
+    document.getElementById('pool-limite-lbl').textContent = 'Transmitiendo';
+    document.getElementById('pool-disponibles').style.color = 'var(--muted)';
+    // Reutilizar etiqueta "Consumidos" → "Excediendo"
+    const lblCons = document.querySelector('#pool-consumidos + .pool-stat-lbl') ||
+                    document.getElementById('pool-consumidos')?.nextElementSibling;
+    if (lblCons) lblCons.textContent = 'Dispositivos excediendo';
+    const lblDisp = document.getElementById('pool-disponibles')?.nextElementSibling;
+    if (lblDisp) lblDisp.textContent = 'Límite diario/dispositivo';
+
+    // Barra: % de dispositivos excediendo sobre los que transmiten
+    const pctExc = transmite > 0 ? +((excDevs / transmite) * 100).toFixed(1) : 0;
+    const bar = document.getElementById('pool-bar');
+    const fill = Math.min(pctExc, 100);
+    setTimeout(() => { bar.style.width = fill + '%'; bar.textContent = pctExc + '%'; }, 50);
+    document.getElementById('pool-mark-adv').textContent    = '';
+    document.getElementById('pool-mark-crit').textContent   = '';
+    document.getElementById('pool-mark-limite').textContent = `${excDevs} de ${transmite}`;
+    document.getElementById('pool-formula')?.style && (document.getElementById('pool-formula').style.display = 'none');
+    return;
+  }
+
+  // ── Modo Pool (comportamiento original) ────────────────────────────────────
   const lim = _limiteEfectivo();
   const limiteVal   = lim.valor;
   const consumidos  = d.total_global;
   const disponibles = Math.max(limiteVal - consumidos, 0);
   const pct         = limiteVal > 0 ? +(consumidos / limiteVal * 100).toFixed(2) : 0;
 
-  // Estado recalculado con el nuevo límite
   const adv  = d.umbral_adv  || 75;
   const crit = d.umbral_crit || 90;
   const estadoReal = pct >= crit ? 'CRITICO' : pct >= adv ? 'ADVERTENCIA' : 'OK';
@@ -790,16 +819,20 @@ function renderPoolBanner() {
   document.getElementById('pool-consumidos').textContent  = fmt(consumidos);
   document.getElementById('pool-limite').textContent      = fmt(limiteVal);
   document.getElementById('pool-disponibles').textContent = fmt(disponibles);
+  document.getElementById('pool-disponibles').style.color = 'var(--ok)';
 
-  // Fórmula
+  // Restaurar etiquetas originales
+  const lblCons2 = document.getElementById('pool-consumidos')?.nextElementSibling;
+  if (lblCons2) lblCons2.textContent = 'Consumidos';
+  document.getElementById('pool-limite-lbl').textContent = lim.calculado ? 'Límite calculado' : 'Límite del pool';
+  const lblDisp2 = document.getElementById('pool-disponibles')?.nextElementSibling;
+  if (lblDisp2) lblDisp2.textContent = 'Disponibles';
+
   const formulaEl = document.getElementById('pool-formula');
-  const limiteLbl = document.getElementById('pool-limite-lbl');
   if (lim.calculado) {
     if (formulaEl) { formulaEl.style.display='block'; formulaEl.textContent=`${lim.disp}×${lim.limDia}×${d.dias_mes}d`; }
-    if (limiteLbl)  limiteLbl.textContent = 'Límite calculado';
   } else {
     if (formulaEl) formulaEl.style.display = 'none';
-    if (limiteLbl) limiteLbl.textContent = 'Límite del pool';
   }
 
   const bar = document.getElementById('pool-bar');
