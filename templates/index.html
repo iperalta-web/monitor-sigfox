@@ -343,10 +343,28 @@
 
     <div class="sidebar-section" id="sidebar-limits">
       <div class="sidebar-title">🎯 Límites</div>
-      <label>Límite global mensual</label>
-      <input type="number" id="cfg-limite-global" step="100000">
-      <label>Límite diario por dispositivo</label>
-      <input type="number" id="cfg-limite-diario" step="10">
+
+      <!-- Dispositivos contratados (nuevo) -->
+      <label style="font-weight:700;color:#1d4ed8">📡 Dispositivos contratados</label>
+      <input type="number" id="cfg-disp-cont" min="0" step="1" placeholder="ej: 1000"
+             oninput="actualizarFormulaCfg()">
+      <label>Msgs/día por dispositivo</label>
+      <input type="number" id="cfg-limite-diario" step="10"
+             oninput="actualizarFormulaCfg()">
+
+      <!-- Fórmula visual -->
+      <div id="cfg-formula-box"
+           style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;
+                  padding:8px 10px;margin:6px 0 10px;font-size:11px;
+                  color:#1d4ed8;font-weight:600;text-align:center;display:none">
+      </div>
+
+      <label style="font-size:11px;color:var(--muted)">
+        ↳ Límite global mensual (calculado o manual)
+      </label>
+      <input type="number" id="cfg-limite-global" step="100000"
+             oninput="actualizarFormulaCfg()">
+
       <label>% Advertencia global</label>
       <input type="number" id="cfg-adv-global" min="1" max="99">
       <label>% Crítico global</label>
@@ -937,12 +955,38 @@ function renderInfo() {
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
+function actualizarFormulaCfg() {
+  const disp   = parseInt(document.getElementById('cfg-disp-cont')?.value)  || 0;
+  const limDia = parseInt(document.getElementById('cfg-limite-diario')?.value) || 140;
+  const box    = document.getElementById('cfg-formula-box');
+  const campo  = document.getElementById('cfg-limite-global');
+  const hoy    = new Date();
+  const dias   = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0).getDate();
+  const mes    = hoy.toLocaleString('es-MX', {month:'long'});
+  const fmt    = n => n.toLocaleString('es-MX');
+
+  if (disp > 0) {
+    const total = disp * limDia * dias;
+    if (box) {
+      box.style.display = 'block';
+      box.innerHTML = `${fmt(disp)} × ${fmt(limDia)} × ${dias}d (${mes})<br>
+        <span style="font-size:13px">= <b>${fmt(total)}</b> msgs/mes</span>`;
+    }
+    // Auto-rellenar el campo de límite global
+    if (campo) campo.value = total;
+  } else {
+    if (box) box.style.display = 'none';
+  }
+}
+
 async function cargarConfig() {
   try {
     const res = await fetch('/api/config');
     const cfg = await res.json();
+    document.getElementById('cfg-disp-cont').value    = cfg.limites.dispositivos_contratados || 0;
     document.getElementById('cfg-limite-global').value = cfg.limites.global_mensual;
     document.getElementById('cfg-limite-diario').value = cfg.limites.diario_default;
+    actualizarFormulaCfg();
     document.getElementById('cfg-adv-global').value    = cfg.alertas.umbral_global_advertencia_pct;
     document.getElementById('cfg-crit-global').value   = cfg.alertas.umbral_global_critico_pct;
     document.getElementById('cfg-adv-dev').value       = cfg.alertas.umbral_advertencia_pct;
@@ -960,9 +1004,12 @@ async function cargarConfig() {
 }
 
 async function guardarConfig() {
+  // Si hay dispositivos, recalcular el límite global antes de guardar
+  actualizarFormulaCfg();
   const body = {
-    limite_global:    +document.getElementById('cfg-limite-global').value,
-    limite_diario:    +document.getElementById('cfg-limite-diario').value,
+    limite_global:             +document.getElementById('cfg-limite-global').value,
+    limite_diario:             +document.getElementById('cfg-limite-diario').value,
+    dispositivos_contratados:  +document.getElementById('cfg-disp-cont').value || 0,
     umbral_global_adv: +document.getElementById('cfg-adv-global').value,
     umbral_global_crit:+document.getElementById('cfg-crit-global').value,
     umbral_adv:        +document.getElementById('cfg-adv-dev').value,

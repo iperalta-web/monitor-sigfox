@@ -284,7 +284,14 @@ def obtener_datos(year, month, proyecto_id=None, force=False):
         else:
             limite_global = cfg["limites"]["global_mensual"]
     else:
-        limite_global = cfg["limites"]["global_mensual"]
+        disp_cont_global = cfg["limites"].get("dispositivos_contratados", 0) or 0
+        if disp_cont_global > 0:
+            lim_dia_g = cfg["limites"]["diario_default"]
+            limite_global = disp_cont_global * lim_dia_g * dias_mes
+            _disp_cont    = disp_cont_global
+            _lim_dia_usado = lim_dia_g
+        else:
+            limite_global = cfg["limites"]["global_mensual"]
 
     dias_mes = calendar.monthrange(int(year), int(month))[1]
     hoy = date.today()
@@ -542,6 +549,7 @@ def api_datos():
 def api_config_get():
     cfg = cargar_config()
     ecfg = cfg["alertas"]["email"]
+    cfg["limites"].setdefault("dispositivos_contratados", 0)
     return jsonify({
         "limites": cfg["limites"],
         "alertas": {
@@ -606,6 +614,8 @@ def api_config_post():
             cfg["alertas"]["email"]["usar_tls"] = bool(body["smtp_tls"])
         if body.get("resend_api_key"):
             cfg["alertas"]["email"]["resend_api_key"] = body["resend_api_key"]
+        if "dispositivos_contratados" in body:
+            cfg["limites"]["dispositivos_contratados"] = int(body["dispositivos_contratados"] or 0)
         if "reporte_dia" in body:
             cfg.setdefault("email_config", {})["reporte_dia"]  = body["reporte_dia"]
         if "reporte_hora" in body:
