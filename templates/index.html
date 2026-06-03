@@ -344,13 +344,15 @@
     <div class="sidebar-section" id="sidebar-limits">
       <div class="sidebar-title">🎯 Límites</div>
 
-      <!-- Dispositivos contratados (nuevo) -->
+      <!-- Dispositivos contratados (solo admin puede editar) -->
       <label style="font-weight:700;color:#1d4ed8">📡 Dispositivos contratados</label>
       <input type="number" id="cfg-disp-cont" min="0" step="1" placeholder="ej: 1000"
-             oninput="actualizarFormulaCfg()">
+             oninput="actualizarFormulaCfg()"
+             {% if usuario.rol != 'admin' %}readonly style="background:#f1f5f9;color:#94a3b8;cursor:not-allowed"{% endif %}>
       <label>Msgs/día por dispositivo</label>
       <input type="number" id="cfg-limite-diario" step="10"
-             oninput="actualizarFormulaCfg()">
+             oninput="actualizarFormulaCfg()"
+             {% if usuario.rol != 'admin' %}readonly style="background:#f1f5f9;color:#94a3b8;cursor:not-allowed"{% endif %}>
 
       <!-- Fórmula visual -->
       <div id="cfg-formula-box"
@@ -373,8 +375,10 @@
       <input type="number" id="cfg-adv-dev" min="1" max="99">
       <label>% Crítico por dispositivo</label>
       <input type="number" id="cfg-crit-dev" min="1" max="100">
+      {% if usuario.rol == 'admin' %}
       <button class="save-btn" onclick="guardarConfig()">💾 Guardar límites</button>
       <div class="saved-msg" id="saved-msg">✅ Guardado correctamente</div>
+      {% endif %}
     </div>
 
     <div class="sidebar-section">

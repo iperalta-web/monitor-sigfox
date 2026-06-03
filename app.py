@@ -39,7 +39,8 @@ from database import (init_db, verificar_usuario, get_usuario, get_config,
                       asignar_dispositivos_proyecto, agregar_dispositivo_proyecto,
                       quitar_dispositivo_proyecto, get_proyectos_de_dispositivo,
                       get_proyectos_de_usuario, get_proyectos_visibles,
-                      asignar_usuarios_proyecto, get_usuarios_de_proyecto)
+                      asignar_usuarios_proyecto, get_usuarios_de_proyecto,
+                      get_config, set_config)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
@@ -217,6 +218,12 @@ def cargar_config():
     cfg["alertas"]["email"].setdefault("remitente",  "")
     cfg.setdefault("limites", CONFIG_DEFAULT["limites"])
     cfg["limites"].setdefault("por_dispositivo", {})
+    # Leer dispositivos_contratados desde PostgreSQL (persiste entre deploys)
+    try:
+        val = get_config("dispositivos_contratados")
+        cfg["limites"]["dispositivos_contratados"] = int(val) if val else cfg["limites"].get("dispositivos_contratados", 0)
+    except Exception:
+        cfg["limites"].setdefault("dispositivos_contratados", 0)
     return cfg
 
 def guardar_config_json(cfg):
@@ -620,7 +627,13 @@ def api_config_post():
         if body.get("resend_api_key"):
             cfg["alertas"]["email"]["resend_api_key"] = body["resend_api_key"]
         if "dispositivos_contratados" in body:
-            cfg["limites"]["dispositivos_contratados"] = int(body["dispositivos_contratados"] or 0)
+            val = int(body["dispositivos_contratados"] or 0)
+            cfg["limites"]["dispositivos_contratados"] = val
+            # Persistir en PostgreSQL (no se pierde en deploys)
+            try:
+                set_config("dispositivos_contratados", val)
+            except Exception as e:
+                print(f"  [WARN] No se pudo guardar dispositivos_contratados en DB: {e}")
         if "reporte_dia" in body:
             cfg.setdefault("email_config", {})["reporte_dia"]  = body["reporte_dia"]
         if "reporte_hora" in body:
