@@ -845,13 +845,8 @@ function renderPoolBanner() {
   document.getElementById('pool-disponibles').textContent = fmt(disponibles);
   document.getElementById('pool-disponibles').style.color = 'var(--ok)';
 
-  // Stat extra: excedentes (solo si hay)
-  const excPool = d.excesos_total || 0;
-  const statExtra = document.getElementById('pool-stat-extra');
-  statExtra.style.display = '';
-  document.getElementById('pool-extra-val').textContent = excPool > 0 ? fmt(excPool) : '0';
-  document.getElementById('pool-extra-val').style.color = excPool > 0 ? 'var(--crit)' : 'var(--ok)';
-  document.getElementById('pool-extra-lbl').textContent = 'Excedentes';
+  // Ocultar stat extra en modo pool
+  document.getElementById('pool-stat-extra').style.display = 'none';
 
   // Restaurar etiquetas originales
   const lblCons2 = document.getElementById('pool-consumidos')?.nextElementSibling;
