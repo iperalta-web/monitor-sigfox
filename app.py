@@ -69,7 +69,7 @@ else:
 
 # ── Cache en memoria + disco ──────────────────────────────────────────────────
 _cache   = {}
-CACHE_TTL = 300  # 5 min en memoria
+CACHE_TTL = 900  # 15 min en memoria
 DATA_DIR  = os.path.join(SCRIPT_DIR, "data")
 
 def _cache_file(key):
@@ -315,7 +315,7 @@ def obtener_datos(year, month, proyecto_id=None, force=False):
     password = cfg["sigfox"]["password"]
     args_list = [(login, password, dev, year, month, dias_mes) for dev in ids]
     registros = []
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=20) as executor:
         for resultado in executor.map(_consultar_device, args_list):
             if resultado is not None:
                 registros.append(resultado)

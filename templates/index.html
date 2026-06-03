@@ -1335,19 +1335,85 @@ async function probarSMTP() {
 // ── Descarga CSV ─────────────────────────────────────────────────────────────
 function descargarCSV() {
   if (!datos) { toast('⚠️ Primero consulta los datos', true); return; }
-  const year  = document.getElementById('sel-year').value;
-  const month = document.getElementById('sel-month').value;
-  const btn = document.getElementById('btn-csv');
-  btn.disabled = true;
-  btn.textContent = '⏳ Generando...';
-  const a = document.createElement('a');
-  a.href = `/api/reporte-csv?year=${year}&month=${month}`;
-  a.download = `reporte_sigfox_${year}_${String(month).padStart(2,'0')}.csv`;
+
+  const d     = datos;
+  const year  = d.year  || document.getElementById('sel-year').value;
+  const month = d.month || document.getElementById('sel-month').value;
+  const rows  = [];
+
+  const q = v => (v === null || v === undefined) ? '' : String(v).includes(',') ? `"${v}"` : v;
+  const row = (...cols) => rows.push(cols.map(q).join(','));
+
+  // ── Encabezado ──
+  row('REPORTE DE CONSUMOS SIGFOX');
+  row(`Período: ${d.mes_nombre} ${year}`);
+  row(`Proyecto: ${(proyectoActivo && proyectoActivo.nombre) || 'Todos'}`);
+  row(`Generado: ${new Date().toLocaleString('es-MX')}`);
+  row('');
+
+  // ── Resumen global ──
+  row('RESUMEN GLOBAL');
+  row('Total mensajes consumidos', d.total_global);
+  row('Límite mensual del pool',   d.limite_global);
+  row('% del pool consumido',      d.pct_global + '%');
+  row('Proyección fin de mes',     Math.round(d.proyeccion));
+  row('Mensajes disponibles',      d.disponibles);
+  row('Estado global',             d.estado_global);
+  if (d.modo_calculo === 'dispositivo') {
+    row('Modo de cálculo', 'Por dispositivo');
+    row('Mensajes excedentes', d.excesos_total);
+    row('Dispositivos excediendo', d.dispositivos_excediendo);
+    row('Límite diario por dispositivo', d.limite_diario_exc);
+  }
+  row('');
+
+  // ── Detalle por dispositivo ──
+  row('DETALLE POR DISPOSITIVO');
+  const hdrs = ['ID Dispositivo','Nombre','Mensajes acumulados','Límite mensual',
+                '% del límite','Promedio/día','Límite/día','Días con datos','Estado'];
+  if (d.modo_calculo === 'dispositivo') hdrs.push('Excedentes');
+  row(...hdrs);
+
+  for (const dev of d.dispositivos) {
+    const cols = [
+      dev.id, dev.nombre || '', dev.total, dev.limite_mes,
+      dev.pct + '%', dev.promedio_dia, dev.limite_dia, dev.dias_datos, dev.estado
+    ];
+    if (d.modo_calculo === 'dispositivo') {
+      let exc = 0;
+      const lim = d.limite_diario_exc || 140;
+      (dev.diarios || []).forEach(v => { if (v && v > lim) exc += v - lim; });
+      cols.push(exc);
+    }
+    row(...cols);
+  }
+  row('');
+
+  // ── Serie diaria global ──
+  row('CONSUMO DIARIO GLOBAL');
+  row('Día', ...Array.from({length: d.dias_mes}, (_, i) => i + 1));
+  row('Mensajes', ...(d.serie_global || []).slice(0, d.dias_mes).map(v => v ? Math.round(v) : 0));
+
+  // ── Excedentes diarios (modo dispositivo) ──
+  if (d.modo_calculo === 'dispositivo' && d.excesos_por_dia) {
+    row('');
+    row('EXCEDENTES DIARIOS');
+    row('Día', ...Array.from({length: d.dias_mes}, (_, i) => i + 1));
+    row('Excedentes', ...(d.excesos_por_dia || []).slice(0, d.dias_mes).map(v => Math.round(v || 0)));
+  }
+
+  // ── Descarga ──
+  const bom     = '﻿';   // UTF-8 BOM para Excel
+  const blob    = new Blob([bom + rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url     = URL.createObjectURL(blob);
+  const a       = document.createElement('a');
+  a.href        = url;
+  a.download    = `reporte_sigfox_${year}_${String(month).padStart(2,'0')}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => { btn.disabled = false; btn.textContent = '⬇️ CSV'; }, 1500);
-  toast('✅ Descargando reporte CSV...');
+  URL.revokeObjectURL(url);
+  toast('✅ Reporte CSV descargado');
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
