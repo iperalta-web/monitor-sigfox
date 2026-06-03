@@ -659,13 +659,18 @@ function initClock() {
 }
 
 // ── Consulta de datos ─────────────────────────────────────────────────────────
-async function cargarDatos(force = false) {
+let _primeraCargar = true;  // solo mostrar overlay en la primera carga
+async function cargarDatos(force = false, silencioso = false) {
   const year  = document.getElementById('sel-year').value;
   const month = document.getElementById('sel-month').value;
-  mostrarLoader(true);
-  document.getElementById('btn-refresh').disabled = true;
-  document.getElementById('loader-sub').textContent =
-    `Consultando ${MESES[+month]} ${year}...`;
+
+  // Overlay solo en primera carga o cuando el usuario presiona Actualizar
+  if (!silencioso) {
+    mostrarLoader(true);
+    document.getElementById('btn-refresh').disabled = true;
+    document.getElementById('loader-sub').textContent =
+      `Consultando ${MESES[+month]} ${year}...`;
+  }
 
   try {
     let url = `/api/datos?year=${year}&month=${month}&force=${force}`;
@@ -677,12 +682,12 @@ async function cargarDatos(force = false) {
     renderDashboard();
     if (json.actualizando) {
       mostrarBannerActualizando(true);
-      // Reintentar en 30s para obtener datos frescos
-      setTimeout(() => cargarDatos(true), 30000);
-      toast('⚡ Mostrando datos recientes — actualizando en background...');
+      // Reintentar en 30s en background (sin overlay ni parpadeo)
+      setTimeout(() => cargarDatos(true, true), 30000);
+      if (!silencioso) toast('⚡ Mostrando datos recientes — actualizando en background...');
     } else {
       mostrarBannerActualizando(false);
-      toast(json.desde_cache ? '⚡ Datos desde caché' : '✅ Datos actualizados');
+      if (!silencioso) toast(json.desde_cache ? '⚡ Datos desde caché' : '✅ Datos actualizados');
     }
   } catch (e) {
     toast('❌ Error: ' + e.message, true);
@@ -690,6 +695,7 @@ async function cargarDatos(force = false) {
   } finally {
     mostrarLoader(false);
     document.getElementById('btn-refresh').disabled = false;
+    _primeraCargar = false;
   }
 }
 
