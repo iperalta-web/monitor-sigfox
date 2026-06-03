@@ -956,7 +956,7 @@ function renderInfo() {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 function actualizarFormulaCfg() {
-  const disp   = parseInt(document.getElementById('cfg-disp-cont')?.value)  || 0;
+  const disp   = parseInt(document.getElementById('cfg-disp-cont')?.value)    || 0;
   const limDia = parseInt(document.getElementById('cfg-limite-diario')?.value) || 140;
   const box    = document.getElementById('cfg-formula-box');
   const campo  = document.getElementById('cfg-limite-global');
@@ -967,13 +967,49 @@ function actualizarFormulaCfg() {
 
   if (disp > 0) {
     const total = disp * limDia * dias;
+
+    // Fórmula visual
     if (box) {
       box.style.display = 'block';
       box.innerHTML = `${fmt(disp)} × ${fmt(limDia)} × ${dias}d (${mes})<br>
         <span style="font-size:13px">= <b>${fmt(total)}</b> msgs/mes</span>`;
     }
-    // Auto-rellenar el campo de límite global
+
+    // Auto-rellenar campo límite global
     if (campo) campo.value = total;
+
+    // ── Actualizar el pool en pantalla INMEDIATAMENTE ──────────────────────
+    const elLimite = document.getElementById('pool-limite');
+    const elLbl    = document.getElementById('pool-limite-lbl');
+    const elFormula= document.getElementById('pool-formula');
+    const elMark   = document.getElementById('pool-mark-limite');
+    if (elLimite) elLimite.textContent = fmt(total);
+    if (elLbl)    elLbl.textContent    = 'Límite calculado';
+    if (elFormula){ elFormula.style.display='block'; elFormula.textContent=`${disp}×${limDia}×${dias}d`; }
+    if (elMark)   elMark.textContent   = fmt(total);
+
+    // Recalcular % y barra si hay datos cargados
+    if (typeof datos !== 'undefined' && datos) {
+      const consumidos = datos.total_global || 0;
+      const disponibles = Math.max(total - consumidos, 0);
+      const pct = total > 0 ? (consumidos / total * 100).toFixed(2) : 0;
+
+      const elDisp = document.getElementById('pool-disponibles');
+      const bar    = document.getElementById('pool-bar');
+      if (elDisp) elDisp.textContent = fmt(disponibles);
+      if (bar) {
+        const fill = Math.min(+pct, 100);
+        bar.style.width  = fill + '%';
+        bar.textContent  = pct + '%';
+      }
+      // Actualizar marcas de umbral
+      const adv  = datos.umbral_adv  || 75;
+      const crit = datos.umbral_crit || 90;
+      const elAdv  = document.getElementById('pool-mark-adv');
+      const elCrit = document.getElementById('pool-mark-crit');
+      if (elAdv)  { const v=Math.round(total*adv/100);  elAdv.textContent  = `⚠️ ${fmt(v)}`; }
+      if (elCrit) { const v=Math.round(total*crit/100); elCrit.textContent = `🔴 ${fmt(v)}`; }
+    }
   } else {
     if (box) box.style.display = 'none';
   }

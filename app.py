@@ -268,28 +268,33 @@ def obtener_datos(year, month, proyecto_id=None, force=False):
     ids = (get_dispositivos_proyecto(proyecto_id)
            if proyecto_id else get_ids_dispositivos())
 
-    # Límite global: del proyecto si existe, sino del config global
-    # Si el proyecto tiene dispositivos_contratados > 0, se calcula automáticamente
+    # ── Cálculo del límite ───────────────────────────────────────────────────────
+    # Prioridad: dispositivos_contratados del proyecto > del config global > limite_global fijo
+    disp_cont_global = cfg["limites"].get("dispositivos_contratados", 0) or 0
+    lim_dia_global   = cfg["limites"]["diario_default"]
+
     if proyecto_id:
         p = get_proyecto(proyecto_id)
         if p:
             disp_cont  = p.get("dispositivos_contratados", 0) or 0
             lim_diario = p.get("limite_diario_dispositivo", 0) or 0
+            # Si el proyecto no tiene su propio valor, usa el del config global
+            if disp_cont == 0:
+                disp_cont = disp_cont_global
             if disp_cont > 0:
-                # Usa el límite diario del proyecto; si es 0 usa el global
-                lim_dia = lim_diario if lim_diario > 0 else cfg["limites"]["diario_default"]
+                lim_dia = lim_diario if lim_diario > 0 else lim_dia_global
                 limite_global = disp_cont * lim_dia * dias_mes
+                _disp_cont    = disp_cont
+                _lim_dia_usado = lim_dia
             else:
-                limite_global = p["limite_global"]
+                limite_global  = p["limite_global"]
         else:
             limite_global = cfg["limites"]["global_mensual"]
     else:
-        disp_cont_global = cfg["limites"].get("dispositivos_contratados", 0) or 0
         if disp_cont_global > 0:
-            lim_dia_g = cfg["limites"]["diario_default"]
-            limite_global = disp_cont_global * lim_dia_g * dias_mes
-            _disp_cont    = disp_cont_global
-            _lim_dia_usado = lim_dia_g
+            limite_global  = disp_cont_global * lim_dia_global * dias_mes
+            _disp_cont     = disp_cont_global
+            _lim_dia_usado = lim_dia_global
         else:
             limite_global = cfg["limites"]["global_mensual"]
 
