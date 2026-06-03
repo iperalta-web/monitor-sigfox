@@ -729,6 +729,15 @@ function renderDashboard() {
   if (campoDC) {
     const dispProyecto = datos.dispositivos_contratados || 0;
     if (dispProyecto > 0) campoDC.value = dispProyecto;
+    // En modo dispositivo: el valor es automático (= total del contrato), no editable
+    const modoDisp = datos.modo_calculo === 'dispositivo';
+    {% if usuario.rol == 'admin' %}
+    campoDC.readOnly = modoDisp;
+    campoDC.style.background = modoDisp ? '#f1f5f9' : '';
+    campoDC.style.color      = modoDisp ? '#64748b' : '';
+    campoDC.style.cursor     = modoDisp ? 'not-allowed' : '';
+    campoDC.title = modoDisp ? 'Automático: total de dispositivos del proyecto' : '';
+    {% endif %}
     actualizarFormulaCfg();
   }
   renderPoolBanner();

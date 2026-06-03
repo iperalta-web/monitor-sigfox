@@ -288,15 +288,25 @@ def obtener_datos(year, month, proyecto_id=None, force=False):
     if proyecto_id:
         p = get_proyecto(proyecto_id)
         if p:
-            disp_cont  = p.get("dispositivos_contratados", 0) or 0
+            modo       = p.get("modo_calculo", "pool") or "pool"
             lim_diario = p.get("limite_diario_dispositivo", 0) or 0
-            # Si el proyecto no tiene su propio valor, usa el del config global
-            if disp_cont == 0:
-                disp_cont = disp_cont_global
+            lim_dia    = lim_diario if lim_diario > 0 else lim_dia_global
+
+            if modo == "dispositivo":
+                # En modo dispositivo: contratados = total de dispositivos del proyecto
+                disp_cont = len(ids)
+                # Persistir si cambió (para que el front lo muestre correctamente)
+                if p.get("dispositivos_contratados", 0) != disp_cont:
+                    from database import actualizar_proyecto
+                    actualizar_proyecto(proyecto_id, dispositivos_contratados=disp_cont)
+            else:
+                disp_cont = p.get("dispositivos_contratados", 0) or 0
+                if disp_cont == 0:
+                    disp_cont = disp_cont_global
+
             if disp_cont > 0:
-                lim_dia = lim_diario if lim_diario > 0 else lim_dia_global
-                limite_global = disp_cont * lim_dia * dias_mes
-                _disp_cont    = disp_cont
+                limite_global  = disp_cont * lim_dia * dias_mes
+                _disp_cont     = disp_cont
                 _lim_dia_usado = lim_dia
             else:
                 limite_global  = p["limite_global"]
