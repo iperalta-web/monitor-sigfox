@@ -1080,11 +1080,8 @@ function renderExcedentes() {
     return;
   }
   panel.style.display = 'block';
-  const fmt = n => (n||0).toLocaleString('es-MX');
-  document.getElementById('exc-mes-titulo').textContent  = (datos.mes_nombre||'') + ' ' + (datos.year||'');
-  document.getElementById('exc-devs-count').textContent  = datos.dispositivos_excediendo || 0;
-  document.getElementById('exc-total-msgs').textContent  = fmt(datos.excesos_total);
-  document.getElementById('exc-lim-dia').textContent     = datos.limite_diario_exc || 140;
+  const elTit = document.getElementById('exc-mes-titulo');
+  if (elTit) elTit.textContent = (datos.mes_nombre||'') + ' ' + (datos.year||'');
 
   // Chart excedentes por día
   const labels = Array.from({length: datos.dias_mes||30}, (_,i) => i+1);
