@@ -268,6 +268,10 @@ def obtener_datos(year, month, proyecto_id=None, force=False):
     ids = (get_dispositivos_proyecto(proyecto_id)
            if proyecto_id else get_ids_dispositivos())
 
+    dias_mes = calendar.monthrange(int(year), int(month))[1]
+    hoy = date.today()
+    dia_corte = hoy.day if (int(year) == hoy.year and int(month) == hoy.month) else dias_mes
+
     # ── Cálculo del límite ───────────────────────────────────────────────────────
     # Prioridad: dispositivos_contratados del proyecto > del config global > limite_global fijo
     disp_cont_global = cfg["limites"].get("dispositivos_contratados", 0) or 0
@@ -297,10 +301,6 @@ def obtener_datos(year, month, proyecto_id=None, force=False):
             _lim_dia_usado = lim_dia_global
         else:
             limite_global = cfg["limites"]["global_mensual"]
-
-    dias_mes = calendar.monthrange(int(year), int(month))[1]
-    hoy = date.today()
-    dia_corte = hoy.day if (int(year) == hoy.year and int(month) == hoy.month) else dias_mes
 
     # Consultar todos los dispositivos en paralelo (máx 10 hilos)
     login   = cfg["sigfox"]["login"]
