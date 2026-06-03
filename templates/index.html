@@ -316,12 +316,12 @@
     {% elif proyectos|length == 1 %}
     <div class="sidebar-section">
       <div class="sidebar-title">🏢 Proyecto</div>
-      <div style="font-size:13px;font-weight:700;padding:8px 4px">
-        {{ proyectos[0].nombre }}
-        {% if proyectos[0].cliente %}
-        <div style="font-size:12px;color:var(--muted);font-weight:400">{{ proyectos[0].cliente }}</div>
-        {% endif %}
-      </div>
+      <button class="proyecto-btn activo" data-id="{{ proyectos[0].id }}" data-limite="{{ proyectos[0].limite_global }}"
+              onclick="seleccionarProyecto({{ proyectos[0].id }}, '{{ proyectos[0].nombre|e }}')">
+        <span class="proyecto-dot"></span>
+        <span class="proyecto-nombre">{{ proyectos[0].nombre }}</span>
+        {% if proyectos[0].cliente %}<span class="proyecto-cliente">{{ proyectos[0].cliente }}</span>{% endif %}
+      </button>
     </div>
     {% endif %}
 
