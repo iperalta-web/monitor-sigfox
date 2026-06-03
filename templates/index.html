@@ -457,6 +457,11 @@
         <div class="kpi-val" id="kpi-devs">—</div>
         <div class="kpi-sub" id="kpi-devs-sub"></div>
       </div>
+      <div class="kpi-card">
+        <div class="kpi-lbl">📦 Total en pool</div>
+        <div class="kpi-val" id="kpi-devs-total">—</div>
+        <div class="kpi-sub" id="kpi-devs-total-sub"></div>
+      </div>
     </div>
 
     <!-- Gráficas -->
@@ -788,6 +793,13 @@ function renderKPIs() {
     (d.num_dispositivos - transmitiendo > 0
       ? `<br><span style="color:var(--muted);font-size:11px">${d.num_dispositivos - transmitiendo} sin mensajes</span>`
       : '');
+  // KPI total en pool
+  const totalPool = d.num_dispositivos;
+  const sinMsg    = totalPool - transmitiendo;
+  document.getElementById('kpi-devs-total').textContent = totalPool;
+  document.getElementById('kpi-devs-total-sub').innerHTML =
+    `<span style="color:var(--ok);font-size:11px">✅ ${transmitiendo} activos</span>` +
+    (sinMsg > 0 ? `&nbsp;·&nbsp;<span style="color:var(--muted);font-size:11px">${sinMsg} sin msgs</span>` : '');
   document.getElementById('cnt-crit').textContent = d.num_criticos;
   document.getElementById('cnt-adv').textContent  = d.num_advertencias;
   document.getElementById('cnt-ok').textContent   = d.num_ok;
