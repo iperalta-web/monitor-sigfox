@@ -1902,6 +1902,29 @@ if _cfg_init.get("sync_habilitado") and _cfg_init.get("contratos_sync"):
 
 scheduler.start()
 
+# ── Migración manual (ejecutar una vez si la columna no existe) ───────────────
+@app.route("/admin/api/migrate", methods=["POST"])
+@admin_required
+def admin_migrate():
+    from database import get_db
+    conn = get_db(); cur = conn.cursor()
+    results = []
+    migrations = [
+        ("proyectos", "modo_calculo",              "VARCHAR(20) DEFAULT 'pool'"),
+        ("proyectos", "dispositivos_contratados",  "INTEGER DEFAULT 0"),
+        ("proyectos", "limite_diario_dispositivo", "INTEGER DEFAULT 0"),
+    ]
+    for tabla, col, defn in migrations:
+        try:
+            cur.execute(f"ALTER TABLE {tabla} ADD COLUMN {col} {defn}")
+            conn.commit()
+            results.append(f"✅ {tabla}.{col} agregada")
+        except Exception as e:
+            conn.rollback()
+            results.append(f"⏭ {tabla}.{col}: {str(e)[:60]}")
+    cur.close(); conn.close()
+    return jsonify({"ok": True, "results": results})
+
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     init_db()
