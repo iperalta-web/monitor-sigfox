@@ -708,6 +708,13 @@ function refrescar() { cargarDatos(true); }
 // ── Render principal ──────────────────────────────────────────────────────────
 function renderDashboard() {
   if (!datos) return;
+  // Actualizar campo dispositivos contratados con el valor del proyecto activo
+  const campoDC = document.getElementById('cfg-disp-cont');
+  if (campoDC) {
+    const dispProyecto = datos.dispositivos_contratados || 0;
+    if (dispProyecto > 0) campoDC.value = dispProyecto;
+    actualizarFormulaCfg();
+  }
   renderPoolBanner();
   renderKPIs();
   renderCharts();
@@ -1066,7 +1073,10 @@ async function cargarConfig() {
   try {
     const res = await fetch('/api/config');
     const cfg = await res.json();
-    document.getElementById('cfg-disp-cont').value    = cfg.limites.dispositivos_contratados || 0;
+    // Dispositivos contratados: usa el del proyecto activo si tiene, sino el global
+    const dispProyecto = datos?.dispositivos_contratados || 0;
+    const dispGlobal   = cfg.limites.dispositivos_contratados || 0;
+    document.getElementById('cfg-disp-cont').value    = dispProyecto > 0 ? dispProyecto : dispGlobal;
     document.getElementById('cfg-limite-global').value = cfg.limites.global_mensual;
     document.getElementById('cfg-limite-diario').value = cfg.limites.diario_default;
     actualizarFormulaCfg();
@@ -1087,31 +1097,49 @@ async function cargarConfig() {
 }
 
 async function guardarConfig() {
-  // Si hay dispositivos, recalcular el límite global antes de guardar
   actualizarFormulaCfg();
-  const body = {
-    limite_global:             +document.getElementById('cfg-limite-global').value,
-    limite_diario:             +document.getElementById('cfg-limite-diario').value,
-    dispositivos_contratados:  +document.getElementById('cfg-disp-cont').value || 0,
-    umbral_global_adv: +document.getElementById('cfg-adv-global').value,
-    umbral_global_crit:+document.getElementById('cfg-crit-global').value,
-    umbral_adv:        +document.getElementById('cfg-adv-dev').value,
-    umbral_crit:       +document.getElementById('cfg-crit-dev').value,
-  };
+  const dispCont  = +document.getElementById('cfg-disp-cont').value || 0;
+  const limDia    = +document.getElementById('cfg-limite-diario').value;
+  const limGlobal = +document.getElementById('cfg-limite-global').value;
+
   try {
-    const res = await fetch('/api/config', {
+    // Si hay proyecto activo → guardar dispositivos_contratados en el proyecto
+    if (proyectoActivo) {
+      const resProj = await fetch(`/admin/proyectos/${proyectoActivo.id}/editar`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          dispositivos_contratados:  dispCont,
+          limite_diario_dispositivo: limDia
+        })
+      });
+      const jpro = await resProj.json();
+      if (!jpro.ok) throw new Error(jpro.error || 'Error al guardar proyecto');
+    }
+
+    // Siempre guardar umbrales y límite global en config general
+    const body = {
+      limite_global:      limGlobal,
+      limite_diario:      limDia,
+      umbral_global_adv:  +document.getElementById('cfg-adv-global').value,
+      umbral_global_crit: +document.getElementById('cfg-crit-global').value,
+      umbral_adv:         +document.getElementById('cfg-adv-dev').value,
+      umbral_crit:        +document.getElementById('cfg-crit-dev').value,
+    };
+    // Solo guardar dispositivos_contratados en config global si NO hay proyecto activo
+    if (!proyectoActivo) body.dispositivos_contratados = dispCont;
+
+    const res  = await fetch('/api/config', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify(body)
     });
     const json = await res.json();
     if (json.ok) {
       const msg = document.getElementById('saved-msg');
-      msg.style.display = 'block';
-      setTimeout(() => msg.style.display = 'none', 2500);
+      if (msg) { msg.style.display = 'block'; setTimeout(() => msg.style.display='none', 2500); }
       toast('✅ Límites guardados — recargando datos...');
       setTimeout(() => cargarDatos(true), 800);
-    }
-  } catch(e) { toast('❌ Error al guardar', true); }
+    } else throw new Error(json.error || 'Error servidor');
+  } catch(e) { toast('❌ Error al guardar: ' + e.message, true); }
 }
 
 function openConfig() {
