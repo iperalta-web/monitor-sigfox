@@ -419,6 +419,10 @@
             <div class="pool-stat-val" style="color:var(--ok)" id="pool-disponibles">—</div>
             <div class="pool-stat-lbl">Disponibles</div>
           </div>
+          <div class="pool-stat" id="pool-stat-extra" style="display:none">
+            <div class="pool-stat-val" id="pool-extra-val">—</div>
+            <div class="pool-stat-lbl" id="pool-extra-lbl">—</div>
+          </div>
         </div>
       </div>
       <div class="pool-bar-wrap">
@@ -786,6 +790,12 @@ function renderPoolBanner() {
     const lblDisp = document.getElementById('pool-disponibles')?.nextElementSibling;
     if (lblDisp) lblDisp.textContent = 'Límite diario/dispositivo';
 
+    // Stat extra: total mensajes enviados
+    const msgsTotal = (d.dispositivos||[]).reduce((a,x)=>a+(x.total||0),0);
+    document.getElementById('pool-stat-extra').style.display = '';
+    document.getElementById('pool-extra-val').textContent = fmt(msgsTotal);
+    document.getElementById('pool-extra-lbl').textContent  = 'Total enviados';
+
     // Barra: % de dispositivos excediendo sobre los que transmiten
     const pctExc = transmite > 0 ? +((excDevs / transmite) * 100).toFixed(1) : 0;
     const bar = document.getElementById('pool-bar');
@@ -825,6 +835,14 @@ function renderPoolBanner() {
   document.getElementById('pool-limite').textContent      = fmt(limiteVal);
   document.getElementById('pool-disponibles').textContent = fmt(disponibles);
   document.getElementById('pool-disponibles').style.color = 'var(--ok)';
+
+  // Stat extra: excedentes (solo si hay)
+  const excPool = d.excesos_total || 0;
+  const statExtra = document.getElementById('pool-stat-extra');
+  statExtra.style.display = '';
+  document.getElementById('pool-extra-val').textContent = excPool > 0 ? fmt(excPool) : '0';
+  document.getElementById('pool-extra-val').style.color = excPool > 0 ? 'var(--crit)' : 'var(--ok)';
+  document.getElementById('pool-extra-lbl').textContent = 'Excedentes';
 
   // Restaurar etiquetas originales
   const lblCons2 = document.getElementById('pool-consumidos')?.nextElementSibling;
