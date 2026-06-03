@@ -472,6 +472,11 @@
         <div class="kpi-val" id="kpi-devs-total">—</div>
         <div class="kpi-sub" id="kpi-devs-total-sub"></div>
       </div>
+      <div class="kpi-card">
+        <div class="kpi-lbl">📨 Mensajes totales</div>
+        <div class="kpi-val" id="kpi-msgs-total">—</div>
+        <div class="kpi-sub" id="kpi-msgs-total-sub"></div>
+      </div>
     </div>
 
     <!-- Gráficas -->
@@ -872,6 +877,15 @@ function renderKPIs() {
   document.getElementById('kpi-devs-total-sub').innerHTML =
     `<span style="color:var(--ok);font-size:11px">✅ ${transmitiendo} activos</span>` +
     (sinMsg > 0 ? `&nbsp;·&nbsp;<span style="color:var(--muted);font-size:11px">${sinMsg} sin msgs</span>` : '');
+  // KPI mensajes totales
+  const msgsTotal = d.dispositivos.reduce((acc, x) => acc + (x.total || 0), 0);
+  const msgsHoy   = d.dispositivos.reduce((acc, x) => {
+    const hoyIdx = d.dia_corte - 1;
+    return acc + ((x.diarios && x.diarios[hoyIdx]) ? x.diarios[hoyIdx] : 0);
+  }, 0);
+  document.getElementById('kpi-msgs-total').textContent = fmt(msgsTotal);
+  document.getElementById('kpi-msgs-total-sub').textContent = msgsHoy > 0 ? `${fmt(msgsHoy)} hoy` : `al ${d.dia_corte}/${d.mes_nombre||''}`;
+
   document.getElementById('cnt-crit').textContent = d.num_criticos;
   document.getElementById('cnt-adv').textContent  = d.num_advertencias;
   document.getElementById('cnt-ok').textContent   = d.num_ok;
