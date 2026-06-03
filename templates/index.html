@@ -703,7 +703,7 @@ async function cargarDatos(force = false, silencioso = false) {
     if (json.actualizando) {
       mostrarBannerActualizando(true);
       // Reintentar en 30s en background (sin overlay ni parpadeo)
-      setTimeout(() => cargarDatos(true, true), 30000);
+      setTimeout(() => cargarDatos(true, true), 600000);
       if (!silencioso) toast('⚡ Mostrando datos recientes — actualizando en background...');
     } else {
       mostrarBannerActualizando(false);
