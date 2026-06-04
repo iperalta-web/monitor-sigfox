@@ -1134,6 +1134,40 @@ def admin_api_contratos():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/admin/api/contratos/debug", methods=["GET"])
+@admin_required
+def admin_api_contratos_debug():
+    """Diagnóstico: muestra todos los contratos con nombre y cantidad de dispositivos."""
+    try:
+        cfg      = cargar_config()
+        login    = cfg["sigfox"]["login"]
+        password = cfg["sigfox"]["password"]
+        if not login:
+            return jsonify({"ok": False, "error": "Sin credenciales Sigfox"}), 400
+        contratos = []
+        url    = "https://api.sigfox.com/v2/contract-infos/"
+        params = {"limit": 200}
+        while url:
+            r = requests.get(url, auth=HTTPBasicAuth(login, password),
+                             params=params, timeout=20)
+            params = {}
+            if r.status_code != 200:
+                return jsonify({"ok": False,
+                                "status": r.status_code,
+                                "body": r.text[:500]}), 502
+            data = r.json()
+            contratos.extend(data.get("data", []))
+            next_url = data.get("paging", {}).get("next")
+            url = next_url if next_url and next_url != url else None
+        return jsonify({
+            "ok": True,
+            "total": len(contratos),
+            "contratos": [{"id": c["id"], "name": c.get("name",""), "tokens": c.get("activTokens",0)} for c in contratos]
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/admin/api/contratos/<contrato_id>/csv", methods=["GET"])
 @admin_required
 def admin_api_contrato_csv(contrato_id):
