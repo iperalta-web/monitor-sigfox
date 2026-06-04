@@ -1682,7 +1682,7 @@ function _actualizarContadorSel() {
 }
 
 async function _importarUnContrato(pid, contratoId, reemplazar) {
-  /** Lanza job y espera (polling) hasta ok/error. Devuelve objeto resultado. */
+  /** Importación síncrona: llama al endpoint y espera la respuesta directa. */
   const res  = await fetch(`/admin/proyectos/${pid}/importar-contrato`, {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ contrato_id: contratoId, reemplazar })
@@ -1693,19 +1693,7 @@ async function _importarUnContrato(pid, contratoId, reemplazar) {
   }
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Error desconocido');
-
-  const jobId = json.job_id;
-  // Polling
-  for (let i = 0; i < 300; i++) {   // máx ~15 min (300 * 3s)
-    await new Promise(r => setTimeout(r, 3000));
-    const r2  = await fetch(`/admin/api/import-job/${jobId}`);
-    if (!r2.ok) throw new Error(`Poll HTTP ${r2.status}`);
-    const job = await r2.json();
-    if (job.estado === 'ok')    return job;
-    if (job.estado === 'error') throw new Error(job.error || 'Error en job');
-    // pending → sigue esperando
-  }
-  throw new Error('Timeout esperando resultado');
+  return json;
 }
 
 async function importarContratos() {

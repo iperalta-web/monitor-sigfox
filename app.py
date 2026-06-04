@@ -1261,26 +1261,45 @@ def _run_importar_contrato(job_id, pid, contrato_id, reemplazar):
 @app.route("/admin/proyectos/<int:pid>/importar-contrato", methods=["POST"])
 @admin_required
 def admin_importar_contrato(pid):
-    """Lanza la importación en background y devuelve un job_id para polling."""
-    import threading, uuid
+    """Importa dispositivos de un contrato Sigfox y los asigna al proyecto (síncrono)."""
     body        = request.get_json()
     contrato_id = body.get("contrato_id", "").strip()
     reemplazar  = bool(body.get("reemplazar", False))
     if not contrato_id:
         return jsonify({"ok": False, "error": "contrato_id requerido"}), 400
 
-    cfg = cargar_config()
-    if not cfg["sigfox"]["login"] or not cfg["sigfox"]["password"]:
-        return jsonify({"ok": False, "error": "Credenciales Sigfox no configuradas"}), 400
+    try:
+        cfg      = cargar_config()
+        login    = cfg["sigfox"]["login"]
+        password = cfg["sigfox"]["password"]
+        if not login or not password:
+            return jsonify({"ok": False, "error": "Credenciales Sigfox no configuradas"}), 400
 
-    job_id = str(uuid.uuid4())[:8]
-    _import_jobs[job_id] = {"estado": "pending", "msg": "Iniciando..."}
-    threading.Thread(
-        target=_run_importar_contrato,
-        args=(job_id, pid, contrato_id, reemplazar),
-        daemon=True,
-    ).start()
-    return jsonify({"ok": True, "job_id": job_id, "async": True})
+        device_ids = _fetch_devices_from_contract(login, password, contrato_id)
+
+        if not device_ids:
+            return jsonify({"ok": True, "estado": "ok", "asignados": 0,
+                            "nuevos_en_pool": 0,
+                            "msg": "El contrato no tiene dispositivos asignados."})
+
+        nuevos = 0
+        for did in device_ids:
+            ok_ins, _ = agregar_dispositivo(did, "")
+            if ok_ins:
+                nuevos += 1
+
+        if reemplazar:
+            asignar_dispositivos_proyecto(pid, [])
+
+        for did in device_ids:
+            agregar_dispositivo_proyecto(pid, did)
+
+        cache_clear_all()
+        return jsonify({"ok": True, "estado": "ok",
+                        "asignados": len(device_ids),
+                        "nuevos_en_pool": nuevos})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/admin/api/import-job/<job_id>", methods=["GET"])
