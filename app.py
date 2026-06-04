@@ -1220,18 +1220,20 @@ _import_jobs = {}   # job_id -> {"estado": "pending"|"ok"|"error", ...}
 def _run_importar_contrato(job_id, pid, contrato_id, reemplazar):
     """Corre en background: descarga dispositivos y los asigna al proyecto."""
     try:
-        _import_jobs[job_id] = {"estado": "pending", "msg": "Descargando dispositivos..."}
+        _import_jobs[job_id] = {"estado": "pending", "msg": f"Descargando dispositivos del contrato {contrato_id}..."}
         cfg      = cargar_config()
         login    = cfg["sigfox"]["login"]
         password = cfg["sigfox"]["password"]
+        if not login or not password:
+            raise RuntimeError("Credenciales Sigfox no configuradas en variables de entorno.")
 
         device_ids = _fetch_devices_from_contract(login, password, contrato_id)
-        _import_jobs[job_id]["msg"] = f"Descargados {len(device_ids)} IDs, guardando..."
+        _import_jobs[job_id]["msg"] = f"Descargados {len(device_ids)} IDs, guardando en proyecto {pid}..."
 
         if not device_ids:
             _import_jobs[job_id] = {"estado": "ok", "asignados": 0,
                                     "nuevos_en_pool": 0,
-                                    "msg": "El contrato no tiene dispositivos."}
+                                    "msg": "El contrato no tiene dispositivos asignados."}
             return
 
         nuevos = 0
@@ -1752,29 +1754,24 @@ def verificar_y_enviar_alertas():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _fetch_devices_from_contract(login, password, contrato_id):
-    """Descarga todos los IDs de dispositivos de un contrato (paginado)."""
+    """Descarga todos los IDs de dispositivos de un contrato (paginado). Lanza excepción en error."""
     device_ids = []
     url    = f"https://api.sigfox.com/v2/contract-infos/{contrato_id}/devices"
     params = {"limit": 100}
     while url:
-        try:
-            r = requests.get(url, auth=HTTPBasicAuth(login, password),
-                             params=params, timeout=15)
-            params = {}
-            if r.status_code != 200:
-                print(f"  [Sync] API error {r.status_code} en contrato {contrato_id}")
-                break
-            data = r.json()
-            for dev in data.get("data", []):
-                did = dev.get("id")
-                if did:
-                    device_ids.append(str(did))
-            paging   = data.get("paging", {})
-            next_url = paging.get("next")
-            url = next_url if next_url and next_url != url else None
-        except Exception as e:
-            print(f"  [Sync] Error paginando contrato {contrato_id}: {e}")
-            break
+        r = requests.get(url, auth=HTTPBasicAuth(login, password),
+                         params=params, timeout=30)
+        params = {}
+        if r.status_code != 200:
+            raise RuntimeError(f"Sigfox API {r.status_code} para contrato {contrato_id}: {r.text[:300]}")
+        data = r.json()
+        for dev in data.get("data", []):
+            did = dev.get("id")
+            if did:
+                device_ids.append(str(did))
+        paging   = data.get("paging", {})
+        next_url = paging.get("next")
+        url = next_url if next_url and next_url != url else None
     return device_ids
 
 
