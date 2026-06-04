@@ -1259,17 +1259,35 @@ def _run_importar_contrato(job_id, pid, contrato_id, reemplazar):
         _import_jobs[job_id] = {"estado": "error", "error": str(e)}
 
 
+@app.route("/admin/api/test-contrato/<contrato_id>", methods=["GET"])
+@admin_required
+def admin_test_contrato(contrato_id):
+    """Diagnóstico: prueba descarga de dispositivos de un contrato."""
+    import traceback
+    try:
+        cfg      = cargar_config()
+        login    = cfg["sigfox"]["login"]
+        password = cfg["sigfox"]["password"]
+        if not login:
+            return jsonify({"ok": False, "error": "Sin credenciales Sigfox"})
+        ids = _fetch_devices_from_contract(login, password, contrato_id)
+        return jsonify({"ok": True, "total": len(ids), "primeros": ids[:5]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()})
+
+
 @app.route("/admin/proyectos/<int:pid>/importar-contrato", methods=["POST"])
 @admin_required
 def admin_importar_contrato(pid):
     """Importa dispositivos de un contrato Sigfox y los asigna al proyecto (síncrono)."""
-    body        = request.get_json()
-    contrato_id = body.get("contrato_id", "").strip()
-    reemplazar  = bool(body.get("reemplazar", False))
-    if not contrato_id:
-        return jsonify({"ok": False, "error": "contrato_id requerido"}), 400
-
+    import traceback as tb
     try:
+        body        = request.get_json(force=True) or {}
+        contrato_id = body.get("contrato_id", "").strip()
+        reemplazar  = bool(body.get("reemplazar", False))
+        if not contrato_id:
+            return jsonify({"ok": False, "error": "contrato_id requerido"}), 400
+
         cfg      = cargar_config()
         login    = cfg["sigfox"]["login"]
         password = cfg["sigfox"]["password"]
@@ -1291,8 +1309,8 @@ def admin_importar_contrato(pid):
                         "asignados": asignados,
                         "nuevos_en_pool": nuevos})
     except Exception as e:
-        import traceback; traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        tb.print_exc()
+        return jsonify({"ok": False, "error": str(e), "tipo": type(e).__name__}), 500
 
 
 @app.route("/admin/api/import-job/<job_id>", methods=["GET"])
