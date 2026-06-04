@@ -185,7 +185,15 @@ CONFIG_DEFAULT = {
     },
 }
 
+_cfg_cache      = None
+_cfg_cache_ts   = 0
+_CFG_CACHE_TTL  = 120   # 2 minutos
+
 def cargar_config():
+    global _cfg_cache, _cfg_cache_ts
+    if _cfg_cache and (time.time() - _cfg_cache_ts) < _CFG_CACHE_TTL:
+        return json.loads(json.dumps(_cfg_cache))   # copia para que nadie mute el cache
+
     if not os.path.exists(CONFIG_PATH):
         # En Railway (o primera ejecución) crea config desde vars de entorno
         cfg = json.loads(json.dumps(CONFIG_DEFAULT))  # deep-copy
@@ -224,12 +232,16 @@ def cargar_config():
         cfg["limites"]["dispositivos_contratados"] = int(val) if val else cfg["limites"].get("dispositivos_contratados", 0)
     except Exception:
         cfg["limites"].setdefault("dispositivos_contratados", 0)
+    _cfg_cache    = json.loads(json.dumps(cfg))
+    _cfg_cache_ts = time.time()
     return cfg
 
 def guardar_config_json(cfg):
+    global _cfg_cache, _cfg_cache_ts
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
+    _cfg_cache = None   # invalidar caché
 
 # ── Sigfox API ────────────────────────────────────────────────────────────────
 def consultar_consumo_api(login, password, device_id, year, month):
