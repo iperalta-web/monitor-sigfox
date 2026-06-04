@@ -40,7 +40,8 @@ from database import (init_db, verificar_usuario, get_usuario, get_config,
                       quitar_dispositivo_proyecto, get_proyectos_de_dispositivo,
                       get_proyectos_de_usuario, get_proyectos_visibles,
                       asignar_usuarios_proyecto, get_usuarios_de_proyecto,
-                      get_config, set_config)
+                      get_config, set_config,
+                      importar_dispositivos_batch)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
@@ -1282,23 +1283,15 @@ def admin_importar_contrato(pid):
                             "nuevos_en_pool": 0,
                             "msg": "El contrato no tiene dispositivos asignados."})
 
-        nuevos = 0
-        for did in device_ids:
-            ok_ins, _ = agregar_dispositivo(did, "")
-            if ok_ins:
-                nuevos += 1
-
-        if reemplazar:
-            asignar_dispositivos_proyecto(pid, [])
-
-        for did in device_ids:
-            agregar_dispositivo_proyecto(pid, did)
+        nuevos, asignados = importar_dispositivos_batch(
+            device_ids, proyecto_id=pid, reemplazar=reemplazar)
 
         cache_clear_all()
         return jsonify({"ok": True, "estado": "ok",
-                        "asignados": len(device_ids),
+                        "asignados": asignados,
                         "nuevos_en_pool": nuevos})
     except Exception as e:
+        import traceback; traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
 
 

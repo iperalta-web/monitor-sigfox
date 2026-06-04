@@ -361,6 +361,42 @@ def agregar_dispositivo(device_id, nombre=""):
         cur.close(); conn.close()
 
 
+def importar_dispositivos_batch(device_ids, proyecto_id=None, reemplazar=False):
+    """
+    Inserta muchos dispositivos de golpe (una sola conexión) y los asigna al proyecto.
+    Devuelve (nuevos_en_pool, asignados).
+    """
+    from psycopg2.extras import execute_values
+    from datetime import datetime
+    conn = get_db(); cur = conn.cursor()
+    try:
+        # 1. Insertar en pool (ignorar duplicados)
+        rows = [(did.strip(), "", 1, datetime.now().isoformat()) for did in device_ids if did.strip()]
+        execute_values(cur,
+            "INSERT INTO dispositivos(device_id, nombre, activo, agregado_en) VALUES %s ON CONFLICT DO NOTHING",
+            rows)
+        nuevos = cur.rowcount
+
+        # 2. Asignar al proyecto si se indica
+        if proyecto_id is not None:
+            if reemplazar:
+                cur.execute("DELETE FROM proyecto_dispositivos WHERE proyecto_id=%s", (proyecto_id,))
+            prows = [(proyecto_id, did.strip()) for did in device_ids if did.strip()]
+            execute_values(cur,
+                "INSERT INTO proyecto_dispositivos(proyecto_id, device_id) VALUES %s ON CONFLICT DO NOTHING",
+                prows)
+            asignados = len(prows)
+        else:
+            asignados = 0
+
+        conn.commit()
+        return nuevos, asignados
+    except Exception:
+        conn.rollback(); raise
+    finally:
+        cur.close(); conn.close()
+
+
 def eliminar_dispositivo(device_id):
     conn = get_db()
     cur  = conn.cursor()
