@@ -280,7 +280,6 @@
     {% if usuario and usuario.rol == 'admin' %}
     <a href="/admin" class="btn btn-outline">👥 Usuarios</a>
     {% endif %}
-    <a href="/base-stations" class="btn btn-outline">📡 Base Stations</a>
     <button class="btn btn-outline" onclick="descargarCSV()" id="btn-csv" title="Descargar reporte CSV">⬇️ CSV</button>
     <button class="btn btn-outline" onclick="openConfig()">⚙️ Config</button>
     <button class="btn btn-primary" id="btn-refresh" onclick="refrescar()">🔄 Actualizar</button>
