@@ -2008,6 +2008,100 @@ def admin_migrate():
     cur.close(); conn.close()
     return jsonify({"ok": True, "results": results})
 
+@app.route("/base-stations")
+@login_required
+def page_base_stations():
+    u = usuario_actual()
+    return render_template("base_stations.html", usuario=u)
+
+
+@app.route("/api/base-stations")
+@login_required
+def api_base_stations():
+    import traceback as tb
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        cfg = cargar_config()
+        login    = cfg["sigfox"]["login"]
+        password = cfg["sigfox"]["password"]
+        if not login:
+            return jsonify({"ok": False, "error": "Sin credenciales Sigfox"}), 400
+
+        # 1. List all base stations
+        bss, url = [], "https://api.sigfox.com/v2/base-stations/"
+        params = {"limit": 100, "fields": "name,location,site,group,hardware,software"}
+        while url:
+            r = requests.get(url, auth=HTTPBasicAuth(login, password), params=params, timeout=20)
+            params = {}
+            if r.status_code != 200:
+                return jsonify({"ok": False, "error": f"Sigfox API {r.status_code}: {r.text[:300]}"}), 502
+            data = r.json()
+            bss.extend(data.get("data", []))
+            nxt = data.get("paging", {}).get("next")
+            url = nxt if nxt and nxt != url else None
+
+        # 2. Fetch cellular connectivity for each BS in parallel
+        def fetch_cellular(bs):
+            bsid = bs["id"]
+            try:
+                r2 = requests.get(
+                    f"https://api.sigfox.com/v2/base-stations/{bsid}/connectivities/cellular",
+                    auth=HTTPBasicAuth(login, password),
+                    params={"fields": "name,state,apn,imei,manufacturer,model,publicIp,operator,imsi,iccid,usbPlugged"},
+                    timeout=15)
+                if r2.status_code == 200:
+                    return bsid, r2.json().get("data", [])
+            except Exception:
+                pass
+            return bsid, []
+
+        cellular_map = {}
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            for bsid, conns in ex.map(fetch_cellular, bss):
+                cellular_map[bsid] = conns
+
+        # 3. Build result
+        result = []
+        for bs in bss:
+            bsid = bs["id"]
+            site  = bs.get("site",  {})
+            group = bs.get("group", {})
+            hw    = bs.get("hardware",  {})
+            sw    = bs.get("software",  {})
+            loc   = bs.get("location",  {})
+            result.append({
+                "id":       bsid,
+                "name":     bs.get("name", bsid),
+                "site":     site.get("name", "")  if isinstance(site,  dict) else str(site),
+                "group":    group.get("name", "") if isinstance(group, dict) else str(group),
+                "lat":      loc.get("lat")         if isinstance(loc,   dict) else None,
+                "lng":      loc.get("lng")         if isinstance(loc,   dict) else None,
+                "hw":       hw.get("hwFamily", "")  if isinstance(hw,  dict) else "",
+                "sw":       sw.get("osversion", "") if isinstance(sw,  dict) else "",
+                "cellular": [
+                    {
+                        "name":        c.get("name", ""),
+                        "state":       c.get("state", 0),
+                        "apn":         c.get("apn",  ""),
+                        "usbPlugged":  c.get("usbPlugged", 0),
+                        "imei":        c.get("imei",  ""),
+                        "manufacturer":c.get("manufacturer", ""),
+                        "model":       c.get("model",  ""),
+                        "publicIp":    c.get("publicIp", ""),
+                        "operator":    c.get("operator", ""),
+                        "imsi":        c.get("imsi",  ""),
+                        "iccid":       c.get("iccid", ""),
+                    }
+                    for c in cellular_map.get(bsid, [])
+                ],
+            })
+
+        return jsonify({"ok": True, "base_stations": result, "total": len(result)})
+    except Exception as e:
+        tb.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     init_db()

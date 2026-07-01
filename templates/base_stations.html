@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Base Stations — IotNet</title>
+<style>
+  :root {
+    --ok:    #16a34a;
+    --adv:   #d97706;
+    --crit:  #dc2626;
+    --blue:  #1d4ed8;
+    --bg:    #f1f5f9;
+    --card:  #ffffff;
+    --text:  #0f172a;
+    --muted: #64748b;
+    --border:#e2e8f0;
+    --radius:14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg);
+         color: var(--text); min-height: 100vh; }
+
+  /* ── Topbar ── */
+  .topbar {
+    background: #0f172a;
+    color: white;
+    padding: 0 28px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .topbar h1  { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+  .topbar-tag { background: #1d4ed8; font-size: 11px; padding: 2px 8px;
+                border-radius: 999px; font-weight: 600; }
+  .topbar-nav { display: flex; align-items: center; gap: 6px; margin-left: 18px; }
+  .topbar-nav a {
+    color: #94a3b8; text-decoration: none; font-size: 13px; font-weight: 500;
+    padding: 5px 12px; border-radius: 6px; transition: all .15s;
+  }
+  .topbar-nav a:hover { background: #1e293b; color: white; }
+  .topbar-nav a.active { background: #1e40af; color: white; }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  .btn { padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer;
+         font-size: 13px; font-weight: 600; transition: all .15s; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-primary { background: #1d4ed8; color: white; }
+  .btn-primary:hover { background: #1e40af; }
+  .btn-outline { background: transparent; color: #94a3b8; border: 1px solid #334155; }
+  .btn-outline:hover { background: #1e293b; color: white; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ── Main ── */
+  .main { padding: 28px 32px; max-width: 1600px; margin: 0 auto; }
+
+  /* ── KPI grid ── */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+              gap: 14px; margin-bottom: 24px; }
+  .kpi-card {
+    background: var(--card); border-radius: var(--radius);
+    padding: 18px 20px; border: 1px solid var(--border);
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .kpi-lbl { font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
+  .kpi-val { font-size: 28px; font-weight: 800; color: var(--text); }
+  .kpi-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* ── Toolbar ── */
+  .toolbar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .search-wrap { position: relative; flex: 1; min-width: 220px; max-width: 380px; }
+  .search-wrap input {
+    width: 100%; padding: 8px 12px 8px 36px;
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: 13px; background: white; color: var(--text); outline: none;
+  }
+  .search-wrap input:focus { border-color: #1d4ed8; }
+  .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+                 color: var(--muted); font-size: 15px; pointer-events: none; }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  .tab-btn {
+    padding: 7px 18px; border-radius: 8px; border: 1px solid var(--border);
+    background: white; color: var(--muted); font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: all .15s;
+  }
+  .tab-btn.active { background: #1d4ed8; color: white; border-color: #1d4ed8; }
+  .tab-btn:hover:not(.active) { background: #f8fafc; color: var(--text); }
+
+  /* ── Table card ── */
+  .card {
+    background: var(--card); border-radius: var(--radius);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+    overflow: hidden;
+  }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    background: #f8fafc; padding: 10px 12px; text-align: left;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--muted);
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: #f8fafc; }
+  tbody td { padding: 10px 12px; vertical-align: middle; }
+  .td-mono { font-family: monospace; font-size: 12px; }
+
+  /* ── State badge ── */
+  .badge {
+    display: inline-block; padding: 3px 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; white-space: nowrap;
+  }
+  .badge-ok   { background: #dcfce7; color: #15803d; }
+  .badge-gray { background: #f1f5f9; color: #475569; }
+  .badge-adv  { background: #fef9c3; color: #a16207; }
+
+  /* ── USB plugged icon ── */
+  .usb-yes { color: var(--ok); font-weight: 700; }
+  .usb-no  { color: var(--muted); }
+
+  /* ── Truncated text ── */
+  .trunc { max-width: 130px; overflow: hidden; text-overflow: ellipsis;
+           white-space: nowrap; display: inline-block; vertical-align: bottom;
+           cursor: default; }
+
+  /* ── BSID link ── */
+  .bs-link { color: #1d4ed8; font-weight: 600; text-decoration: none; font-size: 13px; }
+  .bs-link:hover { text-decoration: underline; }
+
+  /* ── Placeholder card ── */
+  .placeholder-card {
+    text-align: center; padding: 60px 20px;
+    background: var(--card); border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  .placeholder-icon { font-size: 48px; margin-bottom: 14px; }
+  .placeholder-title { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+  .placeholder-sub { font-size: 13px; color: var(--muted); }
+
+  /* ── Table footer ── */
+  .table-footer {
+    padding: 10px 16px; border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--muted); background: #f8fafc;
+  }
+
+  /* ── Loading overlay ── */
+  #overlay {
+    position: fixed; inset: 0; background: rgba(15,23,42,.55);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 999; gap: 16px;
+  }
+  .spinner {
+    width: 48px; height: 48px; border: 4px solid rgba(255,255,255,.2);
+    border-top-color: white; border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #overlay p { color: white; font-size: 14px; font-weight: 600; }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: #0f172a; color: white; padding: 12px 20px;
+    border-radius: 10px; font-size: 13px; font-weight: 500;
+    box-shadow: 0 4px 16px rgba(0,0,0,.3);
+    transform: translateY(80px); opacity: 0;
+    transition: all .3s; z-index: 1000; max-width: 340px;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+  #toast.toast-ok   { border-left: 4px solid var(--ok); }
+  #toast.toast-err  { border-left: 4px solid var(--crit); }
+  #toast.toast-info { border-left: 4px solid var(--blue); }
+
+  /* ── Empty row ── */
+  .empty-row td { text-align: center; color: var(--muted); padding: 40px; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="overlay">
+  <div class="spinner"></div>
+  <p id="overlay-msg">Cargando base stations…</p>
+</div>
+
+<!-- Topbar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span style="font-size:22px">📡</span>
+    <h1>IotNet</h1>
+    <span class="topbar-tag">Monitor Sigfox</span>
+    <nav class="topbar-nav">
+      <a href="/">Dashboard</a>
+      <a href="/base-stations" class="active">📡 Base Stations</a>
+    </nav>
+  </div>
+  <div class="topbar-right">
+    <span style="font-size:13px;color:#94a3b8">{{ usuario.username if usuario else '' }}</span>
+    <a href="/logout" class="btn btn-outline" style="padding:6px 12px">Salir</a>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- KPI cards -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-lbl">Total BSs</div>
+      <div class="kpi-val" id="kpi-total">—</div>
+      <div class="kpi-sub">base stations</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-lbl">Con celular</div>
+      <div class="kpi-val" id="kpi-celular">—</div>
+      <div class="kpi-sub">con conectividad celular</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-lbl">Operadores únicos</div>
+      <div class="kpi-val" id="kpi-operadores">—</div>
+      <div class="kpi-sub">operadores distintos</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-lbl">Última actualización</div>
+      <div class="kpi-val" style="font-size:16px;padding-top:4px" id="kpi-updated">—</div>
+      <div class="kpi-sub" id="kpi-updated-sub"></div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="search" placeholder="Buscar por BSID, site, operador, APN…"
+             oninput="renderTabla()">
+    </div>
+    <button class="btn btn-primary" onclick="cargarBS()" id="btn-refresh">🔄 Actualizar</button>
+    <button class="btn btn-outline" onclick="descargarCSV()">⬇️ CSV</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-celular" onclick="setTab('celular')">📶 Celular</button>
+    <button class="tab-btn" id="tab-ethernet" onclick="setTab('ethernet')">🌐 Ethernet</button>
+  </div>
+
+  <!-- Celular tab content -->
+  <div id="content-celular">
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>BSID</th>
+              <th>Nombre</th>
+              <th>Site</th>
+              <th>APN</th>
+              <th>USB</th>
+              <th>Estado</th>
+              <th>IMEI</th>
+              <th>Fabricante</th>
+              <th>Modelo</th>
+              <th>IP Pública</th>
+              <th>Operador</th>
+              <th>IMSI</th>
+              <th>ICCID</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-celular">
+            <tr class="empty-row"><td colspan="13">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-footer" id="footer-celular">— filas</div>
+    </div>
+  </div>
+
+  <!-- Ethernet tab content -->
+  <div id="content-ethernet" style="display:none">
+    <div class="placeholder-card">
+      <div class="placeholder-icon">🌐</div>
+      <div class="placeholder-title">Conectividad Ethernet</div>
+      <div class="placeholder-sub">La API de Sigfox v2 no expone endpoints de conectividad Ethernet por base station.<br>
+        Esta sección está reservada para cuando esté disponible.</div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+let datos = [];
+let tabActiva = 'celular';
+
+/* ── Tab switching ── */
+function setTab(tab) {
+  tabActiva = tab;
+  document.getElementById('tab-celular').classList.toggle('active', tab === 'celular');
+  document.getElementById('tab-ethernet').classList.toggle('active', tab === 'ethernet');
+  document.getElementById('content-celular').style.display  = tab === 'celular'  ? '' : 'none';
+  document.getElementById('content-ethernet').style.display = tab === 'ethernet' ? '' : 'none';
+}
+
+/* ── Load base stations ── */
+async function cargarBS() {
+  mostrarOverlay('Consultando Sigfox API…');
+  document.getElementById('btn-refresh').disabled = true;
+  try {
+    const res = await fetch('/api/base-stations');
+    const json = await res.json();
+    if (!json.ok) { toast('Error: ' + json.error, 'err'); return; }
+    datos = json.base_stations || [];
+    actualizarKPIs();
+    renderTabla();
+    toast(`${datos.length} base stations cargadas`, 'ok');
+  } catch(e) {
+    toast('Error de red: ' + e.message, 'err');
+  } finally {
+    ocultarOverlay();
+    document.getElementById('btn-refresh').disabled = false;
+  }
+}
+
+/* ── KPIs ── */
+function actualizarKPIs() {
+  document.getElementById('kpi-total').textContent = datos.length;
+
+  const conCelular = datos.filter(b => b.cellular && b.cellular.length > 0).length;
+  document.getElementById('kpi-celular').textContent = conCelular;
+
+  const ops = new Set();
+  datos.forEach(b => (b.cellular || []).forEach(c => { if (c.operator) ops.add(c.operator); }));
+  document.getElementById('kpi-operadores').textContent = ops.size;
+
+  const now = new Date();
+  document.getElementById('kpi-updated').textContent =
+    now.toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'});
+  document.getElementById('kpi-updated-sub').textContent =
+    now.toLocaleDateString('es-MX', {day:'2-digit', month:'short', year:'numeric'});
+}
+
+/* ── State badge ── */
+function stateBadge(state) {
+  if (state === 0) return '<span class="badge badge-ok">ACTIVO</span>';
+  if (state === 1) return '<span class="badge badge-gray">PASIVO</span>';
+  return '<span class="badge badge-adv">INACTIVO</span>';
+}
+
+/* ── Truncated cell with title tooltip ── */
+function trunc(val, maxLen) {
+  if (!val) return '<span class="td-mono" style="color:var(--muted)">—</span>';
+  const s = String(val);
+  if (s.length <= maxLen) return `<span class="td-mono">${esc(s)}</span>`;
+  return `<span class="td-mono trunc" title="${esc(s)}">${esc(s)}</span>`;
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── Render table ── */
+function renderTabla() {
+  if (tabActiva !== 'celular') return;
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  const tbody = document.getElementById('tbody-celular');
+  const footer = document.getElementById('footer-celular');
+
+  // Flatten: one row per cellular connectivity (or one row per BS if none)
+  let rows = [];
+  datos.forEach(bs => {
+    if (!bs.cellular || bs.cellular.length === 0) {
+      rows.push({ bs, c: null });
+    } else {
+      bs.cellular.forEach(c => rows.push({ bs, c }));
+    }
+  });
+
+  // Filter
+  if (q) {
+    rows = rows.filter(({ bs, c }) => {
+      const haystack = [
+        bs.id, bs.name, bs.site,
+        c ? c.apn : '', c ? c.imei : '', c ? c.operator : '',
+        c ? c.publicIp : '', c ? c.imsi : '', c ? c.iccid : '',
+        c ? c.manufacturer : '', c ? c.model : '',
+      ].join(' ').toLowerCase();
+      return haystack.includes(q);
+    });
+  }
+
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="13">Sin resultados</td></tr>`;
+    footer.textContent = '0 filas';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(({ bs, c }) => {
+    const bsLink = `<a href="https://backend.sigfox.com/basestations/${esc(bs.id)}/show"
+      target="_blank" rel="noopener" class="bs-link">${esc(bs.id)}</a>`;
+    const usbIcon = c
+      ? (c.usbPlugged ? '<span class="usb-yes">&#x1F50C; Sí</span>' : '<span class="usb-no">—</span>')
+      : '—';
+    return `<tr>
+      <td>${bsLink}</td>
+      <td>${esc(bs.name || '')}</td>
+      <td>${esc(bs.site || '')}</td>
+      <td>${c ? esc(c.apn || '—') : '—'}</td>
+      <td>${usbIcon}</td>
+      <td>${c ? stateBadge(c.state) : '<span class="badge badge-gray">—</span>'}</td>
+      <td>${c ? trunc(c.imei, 15)  : '—'}</td>
+      <td>${c ? esc(c.manufacturer || '—') : '—'}</td>
+      <td>${c ? esc(c.model || '—')        : '—'}</td>
+      <td class="td-mono">${c ? esc(c.publicIp || '—') : '—'}</td>
+      <td>${c ? esc(c.operator || '—')     : '—'}</td>
+      <td>${c ? trunc(c.imsi,  15)  : '—'}</td>
+      <td>${c ? trunc(c.iccid, 19)  : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  footer.textContent = `${rows.length} fila${rows.length !== 1 ? 's' : ''}`;
+}
+
+/* ── CSV export ── */
+function descargarCSV() {
+  if (!datos.length) { toast('Sin datos para exportar', 'info'); return; }
+
+  const cols = ['BSID','Nombre','Site','APN','USB','Estado','IMEI','Fabricante','Modelo','IP_Publica','Operador','IMSI','ICCID'];
+  const stateLabel = s => s === 0 ? 'ACTIVO' : s === 1 ? 'PASIVO' : 'INACTIVO';
+
+  let rows = [cols];
+  datos.forEach(bs => {
+    if (!bs.cellular || !bs.cellular.length) {
+      rows.push([bs.id, bs.name, bs.site, '', '', '', '', '', '', '', '', '', '']);
+    } else {
+      bs.cellular.forEach(c => {
+        rows.push([
+          bs.id, bs.name, bs.site,
+          c.apn || '', c.usbPlugged ? 'Sí' : 'No',
+          stateLabel(c.state),
+          c.imei || '', c.manufacturer || '', c.model || '',
+          c.publicIp || '', c.operator || '', c.imsi || '', c.iccid || '',
+        ]);
+      });
+    }
+  });
+
+  const csv = '﻿' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `base_stations_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV descargado', 'ok');
+}
+
+/* ── Overlay helpers ── */
+function mostrarOverlay(msg) {
+  document.getElementById('overlay-msg').textContent = msg || 'Cargando…';
+  document.getElementById('overlay').style.display = 'flex';
+}
+function ocultarOverlay() {
+  document.getElementById('overlay').style.display = 'none';
+}
+
+/* ── Toast ── */
+let _toastTimer;
+function toast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show toast-${type}`;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+/* ── Init ── */
+document.addEventListener('DOMContentLoaded', cargarBS);
+</script>
+</body>
+</html>
