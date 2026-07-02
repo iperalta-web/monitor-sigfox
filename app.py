@@ -2010,6 +2010,82 @@ def admin_migrate():
 
 
 
+@app.route("/resumen")
+@login_required
+def page_resumen():
+    u = usuario_actual()
+    proyectos = get_proyectos_visibles(u["id"], u["rol"])
+    return render_template("resumen.html", usuario=u, proyectos=proyectos)
+
+
+@app.route("/api/resumen")
+@login_required
+def api_resumen():
+    """Devuelve datos de múltiples meses para comparación."""
+    import traceback as tb
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        year_desde  = int(request.args.get("year_desde",  date.today().year))
+        mes_desde   = int(request.args.get("mes_desde",   1))
+        year_hasta  = int(request.args.get("year_hasta",  date.today().year))
+        mes_hasta   = int(request.args.get("mes_hasta",   date.today().month))
+        proyecto_id = request.args.get("proyecto_id")
+        if proyecto_id:
+            proyecto_id = int(proyecto_id)
+            u = usuario_actual()
+            visibles = [p["id"] for p in get_proyectos_visibles(u["id"], u["rol"])]
+            if proyecto_id not in visibles:
+                return jsonify({"ok": False, "error": "Sin acceso"}), 403
+
+        # Build list of (year, month) tuples in range
+        periodos = []
+        y, m = year_desde, mes_desde
+        while (y, m) <= (year_hasta, mes_hasta):
+            periodos.append((y, m))
+            m += 1
+            if m > 12:
+                m = 1; y += 1
+            if len(periodos) >= 24:  # max 24 months
+                break
+
+        def fetch_mes(ym):
+            y, m = ym
+            try:
+                return obtener_datos(str(y), str(m), proyecto_id)
+            except Exception as e:
+                return {"year": y, "month": m, "error": str(e)}
+
+        resultados = []
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for d in ex.map(fetch_mes, periodos):
+                if d:
+                    transmitiendo = len([x for x in d.get("dispositivos", []) if x.get("total", 0) > 0])
+                    resultados.append({
+                        "year":          d.get("year"),
+                        "month":         d.get("month"),
+                        "mes_nombre":    d.get("mes_nombre", ""),
+                        "total_global":  d.get("total_global", 0),
+                        "limite_global": d.get("limite_global", 0),
+                        "pct_global":    d.get("pct_global", 0),
+                        "proyeccion":    d.get("proyeccion", 0),
+                        "disponibles":   d.get("disponibles", 0),
+                        "estado_global": d.get("estado_global", "OK"),
+                        "transmitiendo": transmitiendo,
+                        "num_dispositivos": d.get("num_dispositivos", 0),
+                        "excesos_total": d.get("excesos_total", 0),
+                        "dispositivos_excediendo": d.get("dispositivos_excediendo", 0),
+                        "modo_calculo":  d.get("modo_calculo", "pool"),
+                        "error":         d.get("error"),
+                    })
+
+        # Sort by year, month
+        resultados.sort(key=lambda x: (x["year"], x["month"]))
+        return jsonify({"ok": True, "meses": resultados})
+    except Exception as e:
+        tb.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     init_db()

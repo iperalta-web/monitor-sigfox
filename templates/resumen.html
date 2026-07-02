@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Resumen Multi-Mes — IotNet Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --ok:    #16a34a;
+    --adv:   #d97706;
+    --crit:  #dc2626;
+    --blue:  #1d4ed8;
+    --bg:    #f1f5f9;
+    --card:  #ffffff;
+    --text:  #0f172a;
+    --muted: #64748b;
+    --border:#e2e8f0;
+    --radius:14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg);
+         color: var(--text); min-height: 100vh; }
+
+  /* ── Topbar ── */
+  .topbar {
+    background: #0f172a;
+    color: white;
+    padding: 0 28px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .topbar h1  { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+  .topbar-tag { background: #1d4ed8; font-size: 11px; padding: 2px 8px;
+                border-radius: 999px; font-weight: 600; }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  .btn { padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer;
+         font-size: 13px; font-weight: 600; transition: all .15s; text-decoration: none;
+         display: inline-flex; align-items: center; gap: 6px; }
+  .btn-primary { background: #1d4ed8; color: white; }
+  .btn-primary:hover { background: #1e40af; }
+  .btn-outline { background: transparent; color: #94a3b8; border: 1px solid #334155; }
+  .btn-outline:hover { background: #1e293b; color: white; }
+  .btn-active  { background: #1e293b; color: white; border: 1px solid #475569; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ── Main layout ── */
+  .main { padding: 28px; max-width: 1400px; margin: 0 auto; }
+
+  /* ── Filter card ── */
+  .filter-card {
+    background: var(--card); border-radius: var(--radius);
+    border: 1px solid var(--border); padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+    margin-bottom: 24px;
+  }
+  .filter-title {
+    font-size: 13px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .7px; color: var(--muted); margin-bottom: 16px;
+  }
+  .filter-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+  .filter-group { display: flex; flex-direction: column; gap: 5px; }
+  .filter-group label { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .filter-group select, .filter-group input {
+    padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; background: #f8fafc;
+    color: var(--text); outline: none; min-width: 120px;
+  }
+  .filter-group select:focus, .filter-group input:focus {
+    border-color: #1d4ed8; background: white;
+  }
+  .filter-divider {
+    width: 1px; height: 40px; background: var(--border); align-self: flex-end;
+  }
+  .filter-actions { display: flex; gap: 10px; align-items: flex-end; padding-bottom: 1px; }
+
+  /* ── KPI row ── */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+              gap: 16px; margin-bottom: 24px; }
+  .kpi-card {
+    background: var(--card); border-radius: var(--radius);
+    padding: 20px 22px; border: 1px solid var(--border);
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .kpi-icon { font-size: 24px; margin-bottom: 8px; }
+  .kpi-lbl { font-size: 12px; color: var(--muted); margin-bottom: 4px; font-weight: 600;
+             text-transform: uppercase; letter-spacing: .5px; }
+  .kpi-val { font-size: 28px; font-weight: 900; color: var(--text); line-height: 1; }
+  .kpi-sub { font-size: 12px; color: var(--muted); margin-top: 5px; }
+
+  /* ── Charts row ── */
+  .charts-row { display: grid; grid-template-columns: 3fr 2fr; gap: 18px; margin-bottom: 24px; }
+  @media(max-width:900px) { .charts-row { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border-radius: var(--radius);
+    border: 1px solid var(--border); padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .card-title {
+    font-size: 14px; font-weight: 700; color: var(--text);
+    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+  }
+  .chart-wrap { position: relative; height: 260px; }
+
+  /* ── Table ── */
+  .table-card { margin-bottom: 24px; }
+  .table-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px; flex-wrap: wrap; gap: 10px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    background: #f8fafc; padding: 10px 12px; text-align: left;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--muted); border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+  td {
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f8fafc; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  }
+  .badge-ok   { background: #dcfce7; color: var(--ok); }
+  .badge-adv  { background: #fef3c7; color: var(--adv); }
+  .badge-crit { background: #fee2e2; color: var(--crit); }
+  .pct-ok   { color: var(--ok);   font-weight: 700; }
+  .pct-adv  { color: var(--adv);  font-weight: 700; }
+  .pct-crit { color: var(--crit); font-weight: 700; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ── Empty state ── */
+  .empty-state {
+    text-align: center; padding: 60px 20px; color: var(--muted);
+  }
+  .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+  .empty-state p { font-size: 15px; }
+
+  /* ── Loader ── */
+  .loader-overlay {
+    position: fixed; inset: 0; background: rgba(15,23,42,.6);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 999; gap: 16px;
+  }
+  .spinner {
+    width: 48px; height: 48px;
+    border: 4px solid rgba(255,255,255,.2);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loader-text { color: white; font-size: 15px; font-weight: 600; }
+  .loader-sub  { color: #94a3b8; font-size: 13px; }
+  .hidden { display: none !important; }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: #0f172a; color: white;
+    padding: 12px 20px; border-radius: 10px;
+    font-size: 13px; font-weight: 600;
+    box-shadow: 0 4px 20px rgba(0,0,0,.3);
+    transform: translateY(80px); opacity: 0;
+    transition: all .3s; z-index: 200;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+
+  @media(max-width:600px) {
+    .main { padding: 16px; }
+    .kpi-val { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span style="font-size:22px">📡</span>
+    <h1>IotNet Monitor</h1>
+    <span class="topbar-tag">Sigfox</span>
+  </div>
+  <div class="topbar-right">
+    <a href="/" class="btn btn-outline">📊 Dashboard</a>
+    <a href="/resumen" class="btn btn-active">📈 Resumen</a>
+    {% if usuario and usuario.rol == 'admin' %}
+    <a href="/admin" class="btn btn-outline">👥 Usuarios</a>
+    {% endif %}
+    <span style="font-size:13px;color:#94a3b8">{{ usuario.username if usuario else '' }}</span>
+    <a href="/logout" class="btn btn-outline" style="padding:6px 12px">Salir</a>
+  </div>
+</div>
+
+<!-- Loading overlay -->
+<div class="loader-overlay hidden" id="loader">
+  <div class="spinner"></div>
+  <div class="loader-text">Consultando datos...</div>
+  <div class="loader-sub" id="loader-sub">Obteniendo meses seleccionados</div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<div class="main">
+
+  <!-- Filter bar -->
+  <div class="filter-card">
+    <div class="filter-title">🗓️ Rango de meses a comparar</div>
+    <div class="filter-row">
+      <div class="filter-group">
+        <label>Proyecto</label>
+        <select id="sel-proyecto">
+          <option value="">— Todos —</option>
+          {% for p in proyectos %}
+          <option value="{{ p.id }}">{{ p.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="filter-divider"></div>
+      <div class="filter-group">
+        <label>Año desde</label>
+        <select id="sel-year-desde"></select>
+      </div>
+      <div class="filter-group">
+        <label>Mes desde</label>
+        <select id="sel-mes-desde">
+          <option value="1">Enero</option>
+          <option value="2">Febrero</option>
+          <option value="3">Marzo</option>
+          <option value="4">Abril</option>
+          <option value="5">Mayo</option>
+          <option value="6">Junio</option>
+          <option value="7">Julio</option>
+          <option value="8">Agosto</option>
+          <option value="9">Septiembre</option>
+          <option value="10">Octubre</option>
+          <option value="11">Noviembre</option>
+          <option value="12">Diciembre</option>
+        </select>
+      </div>
+      <div class="filter-divider"></div>
+      <div class="filter-group">
+        <label>Año hasta</label>
+        <select id="sel-year-hasta"></select>
+      </div>
+      <div class="filter-group">
+        <label>Mes hasta</label>
+        <select id="sel-mes-hasta">
+          <option value="1">Enero</option>
+          <option value="2">Febrero</option>
+          <option value="3">Marzo</option>
+          <option value="4">Abril</option>
+          <option value="5">Mayo</option>
+          <option value="6">Junio</option>
+          <option value="7">Julio</option>
+          <option value="8">Agosto</option>
+          <option value="9">Septiembre</option>
+          <option value="10">Octubre</option>
+          <option value="11">Noviembre</option>
+          <option value="12">Diciembre</option>
+        </select>
+      </div>
+      <div class="filter-actions">
+        <button class="btn btn-primary" onclick="consultar()">📊 Consultar</button>
+        <button class="btn btn-outline" onclick="descargarCSV()" id="btn-csv" disabled>⬇️ CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI row -->
+  <div class="kpi-grid" id="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-icon">📨</div>
+      <div class="kpi-lbl">Total acumulado</div>
+      <div class="kpi-val" id="kpi-total">—</div>
+      <div class="kpi-sub" id="kpi-total-sub">mensajes en el período</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon">📅</div>
+      <div class="kpi-lbl">Promedio mensual</div>
+      <div class="kpi-val" id="kpi-promedio">—</div>
+      <div class="kpi-sub">mensajes / mes</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon">🏆</div>
+      <div class="kpi-lbl">Mes más activo</div>
+      <div class="kpi-val" id="kpi-max-mes">—</div>
+      <div class="kpi-sub" id="kpi-max-sub">mayor volumen</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon">🗂️</div>
+      <div class="kpi-lbl">Meses consultados</div>
+      <div class="kpi-val" id="kpi-count">—</div>
+      <div class="kpi-sub" id="kpi-count-sub">en el rango seleccionado</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts-row">
+    <div class="card">
+      <div class="card-title">📊 Mensajes por mes</div>
+      <div class="chart-wrap">
+        <canvas id="chart-bar"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">📈 Tendencia de uso</div>
+      <div class="chart-wrap">
+        <canvas id="chart-line"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card table-card">
+    <div class="table-header">
+      <div class="card-title" style="margin-bottom:0">📋 Detalle mensual</div>
+    </div>
+    <div id="tabla-wrap">
+      <div class="empty-state">
+        <div class="icon">📆</div>
+        <p>Selecciona un rango de meses y presiona <strong>Consultar</strong></p>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────
+let _datos = [];
+let _chartBar  = null;
+let _chartLine = null;
+const NOW = new Date();
+const CUR_YEAR  = NOW.getFullYear();
+const CUR_MONTH = NOW.getMonth() + 1;
+
+// ── Init ──────────────────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  populateYears();
+
+  // Defaults: desde Enero del año actual, hasta mes actual
+  document.getElementById("sel-year-desde").value = CUR_YEAR;
+  document.getElementById("sel-mes-desde").value  = "1";
+  document.getElementById("sel-year-hasta").value = CUR_YEAR;
+  document.getElementById("sel-mes-hasta").value  = String(CUR_MONTH);
+
+  // Pre-select first project if only one
+  const selP = document.getElementById("sel-proyecto");
+  if (selP.options.length === 2) {
+    selP.selectedIndex = 1;
+  }
+
+  consultar();
+});
+
+function populateYears() {
+  const yds = document.getElementById("sel-year-desde");
+  const yhs = document.getElementById("sel-year-hasta");
+  for (let y = CUR_YEAR - 2; y <= CUR_YEAR + 2; y++) {
+    yds.add(new Option(y, y));
+    yhs.add(new Option(y, y));
+  }
+}
+
+// ── Fetch ─────────────────────────────────────────────────────────────────
+async function consultar() {
+  const yd = document.getElementById("sel-year-desde").value;
+  const md = document.getElementById("sel-mes-desde").value;
+  const yh = document.getElementById("sel-year-hasta").value;
+  const mh = document.getElementById("sel-mes-hasta").value;
+  const pid = document.getElementById("sel-proyecto").value;
+
+  // Validate range
+  if (+yd > +yh || (+yd === +yh && +md > +mh)) {
+    toast("⚠️ El rango de fechas es inválido", "adv");
+    return;
+  }
+
+  showLoader(true);
+  try {
+    let url = `/api/resumen?year_desde=${yd}&mes_desde=${md}&year_hasta=${yh}&mes_hasta=${mh}`;
+    if (pid) url += `&proyecto_id=${pid}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || "Error desconocido");
+    _datos = json.meses;
+    renderKPIs(_datos);
+    renderCharts(_datos);
+    renderTabla(_datos);
+    document.getElementById("btn-csv").disabled = _datos.length === 0;
+    if (_datos.length === 0) toast("Sin datos para el período seleccionado", "adv");
+  } catch(e) {
+    toast("❌ " + e.message, "crit");
+  } finally {
+    showLoader(false);
+  }
+}
+
+// ── KPIs ──────────────────────────────────────────────────────────────────
+function renderKPIs(meses) {
+  if (!meses.length) {
+    ["kpi-total","kpi-promedio","kpi-max-mes","kpi-count"].forEach(id => {
+      document.getElementById(id).textContent = "—";
+    });
+    return;
+  }
+  const total = meses.reduce((s, m) => s + (m.total_global || 0), 0);
+  const prom  = Math.round(total / meses.length);
+  const maxM  = meses.reduce((a, b) => (b.total_global||0) > (a.total_global||0) ? b : a);
+
+  document.getElementById("kpi-total").textContent    = fmtNum(total);
+  document.getElementById("kpi-total-sub").textContent = `en ${meses.length} mes${meses.length !== 1 ? "es" : ""}`;
+  document.getElementById("kpi-promedio").textContent  = fmtNum(prom);
+  document.getElementById("kpi-max-mes").textContent   = maxM.mes_nombre || `${maxM.month}/${maxM.year}`;
+  document.getElementById("kpi-max-sub").textContent   = fmtNum(maxM.total_global || 0) + " mensajes";
+  document.getElementById("kpi-count").textContent     = meses.length;
+  document.getElementById("kpi-count-sub").textContent = meses.length >= 24 ? "máximo 24 meses" : "en el rango seleccionado";
+}
+
+// ── Charts ────────────────────────────────────────────────────────────────
+function estadoColor(estado, alpha) {
+  alpha = alpha || 1;
+  if (estado === "CRITICO")     return `rgba(220,38,38,${alpha})`;
+  if (estado === "ADVERTENCIA") return `rgba(217,119,6,${alpha})`;
+  return `rgba(22,163,74,${alpha})`;
+}
+
+function renderCharts(meses) {
+  const labels = meses.map(m => `${m.mes_nombre ? m.mes_nombre.slice(0,3) : m.month} ${m.year}`);
+  const totals  = meses.map(m => m.total_global || 0);
+  const limites = meses.map(m => m.limite_global || 0);
+  const colors  = meses.map(m => estadoColor(m.estado_global, 0.85));
+  const borders = meses.map(m => estadoColor(m.estado_global, 1));
+
+  // Bar chart
+  if (_chartBar) _chartBar.destroy();
+  const ctxBar = document.getElementById("chart-bar").getContext("2d");
+  _chartBar = new Chart(ctxBar, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Mensajes",
+          data: totals,
+          backgroundColor: colors,
+          borderColor: borders,
+          borderWidth: 1.5,
+          borderRadius: 6,
+        },
+        {
+          label: "Límite",
+          data: limites,
+          type: "line",
+          borderColor: "rgba(100,116,139,0.6)",
+          borderDash: [5,4],
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: "top", labels: { font: { size: 12 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const m = meses[ctx.dataIndex];
+              if (ctx.datasetIndex === 1) return `Límite: ${fmtNum(ctx.raw)}`;
+              return [
+                `Mensajes: ${fmtNum(ctx.raw)}`,
+                `% Usado: ${(m.pct_global||0).toFixed(1)}%`,
+                `Transmitiendo: ${m.transmitiendo || 0}`,
+                `Estado: ${m.estado_global || "OK"}`
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { font: { size: 11 } } },
+        x: { ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+
+  // Line chart
+  if (_chartLine) _chartLine.destroy();
+  const ctxLine = document.getElementById("chart-line").getContext("2d");
+  _chartLine = new Chart(ctxLine, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Total mensajes",
+          data: totals,
+          borderColor: "#1d4ed8",
+          backgroundColor: "rgba(29,78,216,0.08)",
+          borderWidth: 2.5,
+          pointBackgroundColor: colors,
+          pointBorderColor: borders,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          fill: true,
+          tension: 0.35,
+        },
+        {
+          label: "Proyección",
+          data: meses.map(m => m.proyeccion || 0),
+          borderColor: "rgba(100,116,139,0.5)",
+          borderDash: [5,4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: false,
+          tension: 0.3,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: "top", labels: { font: { size: 12 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              if (ctx.datasetIndex === 1) return `Proyección: ${fmtNum(ctx.raw)}`;
+              const m = meses[ctx.dataIndex];
+              return `${fmtNum(ctx.raw)} msgs — ${(m.pct_global||0).toFixed(1)}%`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { font: { size: 11 } } },
+        x: { ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+}
+
+// ── Table ─────────────────────────────────────────────────────────────────
+function renderTabla(meses) {
+  const wrap = document.getElementById("tabla-wrap");
+  if (!meses.length) {
+    wrap.innerHTML = `<div class="empty-state">
+      <div class="icon">📭</div>
+      <p>No hay datos para el período seleccionado</p>
+    </div>`;
+    return;
+  }
+
+  let html = `<div style="overflow-x:auto"><table>
+    <thead><tr>
+      <th>Mes / Año</th>
+      <th>Mensajes</th>
+      <th>Límite</th>
+      <th>% Usado</th>
+      <th>Transmitiendo</th>
+      <th>Proyección</th>
+      <th>Excedentes</th>
+      <th>Estado</th>
+    </tr></thead>
+    <tbody>`;
+
+  for (const m of meses) {
+    const pct = m.pct_global || 0;
+    let pctClass = "pct-ok";
+    if (pct >= 90) pctClass = "pct-crit";
+    else if (pct >= 75) pctClass = "pct-adv";
+
+    const estado = m.estado_global || "OK";
+    let badgeClass = "badge-ok";
+    if (estado === "CRITICO") badgeClass = "badge-crit";
+    else if (estado === "ADVERTENCIA") badgeClass = "badge-adv";
+
+    const mesLabel = m.mes_nombre ? `${m.mes_nombre} ${m.year}` : `${m.month}/${m.year}`;
+
+    html += `<tr>
+      <td><strong>${mesLabel}</strong></td>
+      <td class="num">${fmtNum(m.total_global || 0)}</td>
+      <td class="num">${fmtNum(m.limite_global || 0)}</td>
+      <td class="${pctClass} num">${pct.toFixed(1)}%</td>
+      <td class="num">${m.transmitiendo || 0} / ${m.num_dispositivos || 0}</td>
+      <td class="num">${fmtNum(m.proyeccion || 0)}</td>
+      <td class="num">${m.dispositivos_excediendo || 0}</td>
+      <td><span class="badge ${badgeClass}">${estado}</span></td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>`;
+  wrap.innerHTML = html;
+}
+
+// ── CSV ───────────────────────────────────────────────────────────────────
+function descargarCSV() {
+  if (!_datos.length) { toast("Sin datos para exportar", "adv"); return; }
+  const cols = ["Mes","Año","Mensajes","Límite","%Usado","Transmitiendo","Proyección","Excedentes","Estado"];
+  const rows = _datos.map(m => [
+    m.mes_nombre || m.month,
+    m.year,
+    m.total_global || 0,
+    m.limite_global || 0,
+    (m.pct_global || 0).toFixed(2),
+    m.transmitiendo || 0,
+    m.proyeccion || 0,
+    m.dispositivos_excediendo || 0,
+    m.estado_global || "OK"
+  ]);
+  const csvContent = [cols, ...rows].map(r => r.join(",")).join("\n");
+  const BOM = "﻿";
+  const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = `resumen_mensajes_${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast("✅ CSV descargado");
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function fmtNum(n) {
+  return Number(n).toLocaleString("es-MX");
+}
+
+function showLoader(v) {
+  document.getElementById("loader").classList.toggle("hidden", !v);
+}
+
+let _toastTimer = null;
+function toast(msg, tipo) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.style.background = tipo === "crit" ? "#dc2626" : tipo === "adv" ? "#d97706" : "#0f172a";
+  el.classList.add("show");
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove("show"), 3500);
+}
+</script>
+</body>
+</html>
